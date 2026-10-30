@@ -1,0 +1,422 @@
+import * as THREE from 'three';
+import {
+  ANIMALS, ECONOMY, MAX_LEVEL, MILL_TIERS, MIRAGE, RHYTHM, SCENE_TIERS, TEXT, WALK_RADIUS,
+  freedomChance, millCost, sceneCost, tierOf, yieldPerLap, type AnimalDef,
+} from './config';
+import type { Sound } from './audio';
+import type { Input } from './input';
+import { saveRun, type RunState } from './save';
+import type { Ui } from './ui';
+import { buildHead, type HeadRig } from './world/animals';
+import type { Yard } from './world/yard';
+import { clamp, damp, smoothstep } from './util';
+
+// The mill loop: step in rhythm, walk the circle, grind flour, upgrade,
+// and every so often run toward the grassland on the horizon.
+
+type MirageState = 'locked' | 'waiting' | 'showing';
+
+interface Dash {
+  t: number;
+  success: boolean;
+  dir: THREE.Vector3;
+  from: THREE.Vector3;
+  tightened: boolean;
+}
+
+const DASH_OUT = 1.25;
+const DASH_BACK = 3.3;
+const DASH_FREE = 2.8;
+const ROPE = 2.6;
+/** the camera sits a little above and behind the head, so you see your own ears */
+const VIEW_LIFT = 0.35;
+/** resting head turn: the edge of the mill is just in view */
+const HEAD_YAW = 0.3;
+/** looking straight at the mill */
+const MILL_YAW = 1.3;
+
+export class MillGame {
+  readonly animal: AnimalDef;
+  private head: HeadRig;
+  private speed = 0;
+  private combo = 0;
+  private lastSide: 'L' | 'R' | null = null;
+  private lastStepAt = 0;
+  private lastInterval = 0;
+  private walkPhase = 0;
+  private bob = 0;
+  private shake = 0;
+  private earTimer = 2;
+  private earTwitch: number[] = [];
+  /** head turn toward the mill (radians, positive = inward) */
+  private yaw = HEAD_YAW;
+  private glance = 0;
+
+  private mirageState: MirageState = 'locked';
+  private mirageTimer = 0;
+  private mirageT = 0;
+  private promptShown = false;
+  private dash: Dash | null = null;
+  private saveTimer = 5;
+  private done = false;
+
+  private tmpLook = new THREE.Vector3();
+  private tmpPos = new THREE.Vector3();
+
+  constructor(
+    private yard: Yard,
+    private ui: Ui,
+    private sound: Sound,
+    private input: Input,
+    readonly run: RunState,
+    private onFreedom: (run: RunState) => void,
+  ) {
+    this.animal = ANIMALS[run.animal];
+    this.head = buildHead(run.animal);
+    this.earTwitch = this.head.ears.map(() => 0);
+    yard.camera.add(this.head.group);
+    yard.setMillLevel(run.millLevel, true);
+    yard.setSceneLevel(run.sceneLevel, true);
+    if (run.sceneLevel >= MIRAGE.unlockSceneLevel) this.unlockMirage();
+    yard.mirage.opacity = 0;
+    this.refreshHud();
+    this.placeCamera(0);
+  }
+
+  dispose() {
+    this.yard.camera.remove(this.head.group);
+    this.yard.mirage.opacity = 0;
+    this.ui.prompt(false);
+  }
+
+  // ── input ────────────────────────────────────────────────────────────
+
+  step(side: 'L' | 'R') {
+    if (this.dash || this.done) return;
+    const now = performance.now() / 1000;
+    const interval = now - this.lastStepAt;
+    if (side === this.lastSide && interval < 0.6) {
+      this.speed *= RHYTHM.stumbleKeep;
+      this.combo = 0;
+      this.lastInterval = 0;
+      this.lastStepAt = now;
+      this.shake = 0.5;
+      this.sound.stumble();
+      this.ui.stumble();
+      return;
+    }
+    if (interval > RHYTHM.maxInterval) this.combo = 0;
+    else if (this.lastInterval > 0 && Math.abs(interval - this.lastInterval) / this.lastInterval < RHYTHM.tolerance)
+      this.combo = Math.min(RHYTHM.maxCombo, this.combo + 1);
+    else this.combo = Math.max(0, this.combo - 2);
+    this.lastInterval = interval < RHYTHM.maxInterval ? interval : 0;
+    this.lastStepAt = now;
+    this.lastSide = side;
+
+    const power = this.animal.stepPower * (1 + this.combo * RHYTHM.bonusPerCombo);
+    this.speed = Math.min(this.maxSpeed(), this.speed + power);
+    this.bob = 1;
+    this.sound.step(this.animal.id === 'ox' ? 1 : this.animal.id === 'horse' ? 0.75 : 0.6);
+    this.ui.step(side, this.combo / RHYTHM.maxCombo);
+  }
+
+  dashIntent() {
+    if (this.dash || this.done || !this.promptShown) return;
+    const success = Math.random() < freedomChance(this.run.sceneLevel, this.run.mirageFails, this.animal);
+    const cam = this.yard.camera;
+    const dir = this.yard.mirage.group.position.clone().sub(cam.position).setY(0).normalize();
+    this.dash = { t: 0, success, dir, from: cam.position.clone(), tightened: false };
+    this.ui.prompt(false);
+    this.promptShown = false;
+    this.sound.step(1.2);
+  }
+
+  upgrade(kind: 'mill' | 'scene') {
+    if (this.done) return;
+    const level = kind === 'mill' ? this.run.millLevel : this.run.sceneLevel;
+    if (level >= MAX_LEVEL) return;
+    const cost = kind === 'mill' ? millCost(level) : sceneCost(level);
+    if (this.run.flour < cost) {
+      this.ui.denied(kind);
+      return;
+    }
+    this.run.flour -= cost;
+    const next = level + 1;
+    const tierUp = tierOf(next) !== tierOf(level);
+    if (kind === 'mill') {
+      this.run.millLevel = next;
+      this.yard.setMillLevel(next);
+      this.glance = tierUp ? 3.2 : 1.6;
+      if (tierUp) this.ui.toast(TEXT.millTierLines[tierOf(next)]);
+    } else {
+      this.run.sceneLevel = next;
+      this.yard.setSceneLevel(next);
+      if (tierUp) this.ui.toast(TEXT.sceneTierLines[tierOf(next)]);
+      if (next === MIRAGE.unlockSceneLevel) {
+        this.unlockMirage();
+        this.ui.toast(TEXT.mirageUnlock);
+      }
+    }
+    this.sound.upgrade(tierUp);
+    this.refreshHud();
+    saveRun(this.run);
+  }
+
+  // ── simulation ───────────────────────────────────────────────────────
+
+  private maxSpeed() {
+    return (
+      this.animal.maxSpeed *
+      (1 + ECONOMY.speedPerMillLevel * (this.run.millLevel - 1)) *
+      (1 + this.combo * 0.01)
+    );
+  }
+
+  private unlockMirage() {
+    if (this.mirageState !== 'locked') return;
+    this.mirageState = 'waiting';
+    this.mirageTimer = MIRAGE.firstDelay;
+  }
+
+  private mirageInterval() {
+    const base = MIRAGE.baseInterval - MIRAGE.intervalPerSceneLevel * (this.run.sceneLevel - MIRAGE.unlockSceneLevel);
+    return Math.max(MIRAGE.minInterval, base) * (0.8 + Math.random() * 0.4);
+  }
+
+  private clarity() {
+    return 0.12 + 0.88 * clamp(this.run.mirageFails / MIRAGE.guaranteeAfterFails);
+  }
+
+  update(dt: number, time: number) {
+    if (this.done) return;
+    this.run.playTime += dt;
+
+    if (this.dash) this.updateDash(dt);
+    else this.walk(dt);
+    if (this.done) return;
+
+    this.updateMirage(dt);
+    this.updateEars(dt);
+    this.yard.mill.update(dt, time, this.run.angle);
+    this.sound.ambience(clamp(this.speed / this.animal.maxSpeed), Math.min(4, (this.run.sceneLevel - 1) / 4), dt);
+
+    this.saveTimer -= dt;
+    if (this.saveTimer <= 0) {
+      this.saveTimer = 5;
+      saveRun(this.run);
+    }
+  }
+
+  private walk(dt: number) {
+    const tier = tierOf(this.run.millLevel);
+    const assistTier = Math.max(0, tier - 2); // steam and star tiers help push
+    const floor = this.maxSpeed() * ECONOMY.autoAssistPerTier * assistTier * 2;
+    this.speed *= Math.exp(-this.animal.drag * dt);
+    if (this.speed < floor) this.speed = damp(this.speed, floor, 1.5, dt);
+
+    const dTheta = (this.speed * dt) / WALK_RADIUS;
+    const before = Math.floor(this.run.angle / (Math.PI * 2));
+    this.run.angle += dTheta;
+    const after = Math.floor(this.run.angle / (Math.PI * 2));
+    if (after > before) this.run.laps += after - before;
+    this.run.flour += (yieldPerLap(this.run.millLevel) * this.animal.strength * dTheta) / (Math.PI * 2);
+
+    // the cadence fades if you stop
+    if (performance.now() / 1000 - this.lastStepAt > RHYTHM.maxInterval * 1.5 && this.combo > 0) {
+      this.combo = 0;
+      this.ui.cadence(0);
+    }
+
+    this.walkPhase += this.speed * dt * 3.4;
+    this.bob = damp(this.bob, 0, 6, dt);
+    this.placeCamera(dt);
+    this.refreshHud();
+  }
+
+  private placeCamera(dt: number) {
+    const cam = this.yard.camera;
+    const a = this.run.angle;
+    const moving = clamp(this.speed / 0.6);
+    const bobY = Math.sin(this.walkPhase * 2) * 0.03 * moving - this.bob * 0.025;
+    this.shake = damp(this.shake, 0, 5, dt);
+    cam.position.set(
+      Math.cos(a) * WALK_RADIUS,
+      this.animal.eyeHeight + VIEW_LIFT + bobY,
+      Math.sin(a) * WALK_RADIUS,
+    );
+    // forward along the circle; the mouse (or a fresh upgrade) turns the head toward the mill
+    this.glance = Math.max(0, this.glance - dt);
+    const lx = this.input.lookX;
+    const mouseYaw = Math.abs(lx) < 0.3 ? 0 : (lx - Math.sign(lx) * 0.3) / 0.7;
+    const target = this.glance > 0 ? MILL_YAW : HEAD_YAW + mouseYaw * (mouseYaw > 0 ? MILL_YAW - HEAD_YAW : 0.8);
+    this.yaw = damp(this.yaw, target, this.glance > 0 ? 2.5 : 4, dt);
+    this.tmpLook
+      .set(-Math.sin(a), 0, Math.cos(a))
+      .multiplyScalar(Math.cos(this.yaw))
+      .addScaledVector(this.tmpPos.set(-Math.cos(a), 0, -Math.sin(a)), Math.sin(this.yaw));
+    this.tmpLook.y = -0.06;
+    this.tmpLook.add(cam.position);
+    cam.up.set(Math.sin(this.walkPhase) * 0.012 * moving + (Math.random() - 0.5) * this.shake * 0.02, 1, 0);
+    cam.lookAt(this.tmpLook);
+    if (Math.abs(cam.fov - 70) > 0.01) {
+      cam.fov = damp(cam.fov, 70, 3, dt);
+      cam.updateProjectionMatrix();
+    }
+  }
+
+  private updateEars(dt: number) {
+    this.earTimer -= dt;
+    if (this.earTimer <= 0) {
+      this.earTimer = 1.5 + Math.random() * 4;
+      const i = Math.floor(Math.random() * this.head.ears.length);
+      this.earTwitch[i] = 1;
+    }
+    this.head.ears.forEach((e, i) => {
+      this.earTwitch[i] = Math.max(0, this.earTwitch[i] - dt * 3);
+      const k = this.earTwitch[i];
+      e.rotation.x = e.userData.rest + Math.sin(k * Math.PI) * 0.5 + Math.sin(this.walkPhase + i) * 0.03;
+    });
+    // the head nods with each step
+    const moving = clamp(this.speed / 0.6);
+    this.head.skull.rotation.x = -this.bob * 0.08 + Math.sin(this.walkPhase * 2) * 0.035 * moving;
+    this.head.skull.position.y = -0.4 - this.bob * 0.02;
+  }
+
+  private updateMirage(dt: number) {
+    const m = this.yard.mirage;
+    if (this.mirageState === 'waiting') {
+      this.mirageTimer -= dt;
+      if (this.mirageTimer <= 0 && !this.dash) {
+        this.mirageState = 'showing';
+        this.mirageT = 0;
+        // appear somewhere in the half of the circle you're about to face
+        const ahead = this.run.angle + Math.PI / 2 + (0.3 + Math.random() * 2.2);
+        m.place(ahead, MIRAGE.distance);
+        m.clarity = this.clarity();
+        this.run.mirageSeen++;
+        this.sound.mirageAppear();
+      }
+      return;
+    }
+    if (this.mirageState !== 'showing' || this.dash) return;
+
+    this.mirageT += dt;
+    const { fadeIn, hold, fadeOut } = MIRAGE;
+    const t = this.mirageT;
+    const env = smoothstep(0, fadeIn, t) * (1 - smoothstep(fadeIn + hold, fadeIn + hold + fadeOut, t));
+    m.opacity = env;
+
+    const cam = this.yard.camera;
+    cam.getWorldDirection(this.tmpLook).setY(0).normalize();
+    this.tmpPos.copy(m.group.position).sub(cam.position).setY(0).normalize();
+    const facing = this.tmpLook.dot(this.tmpPos) > Math.cos(MIRAGE.promptCone);
+    const show = facing && env > 0.45;
+    if (show !== this.promptShown) {
+      this.promptShown = show;
+      this.ui.prompt(show);
+    }
+
+    if (t > fadeIn + hold + fadeOut) {
+      this.mirageState = 'waiting';
+      this.mirageTimer = this.mirageInterval();
+      m.opacity = 0;
+    }
+  }
+
+  private updateDash(dt: number) {
+    const d = this.dash!;
+    d.t += dt;
+    const cam = this.yard.camera;
+    const m = this.yard.mirage;
+    const a = this.run.angle;
+    const pathPos = this.tmpPos.set(Math.cos(a) * WALK_RADIUS, this.animal.eyeHeight + VIEW_LIFT, Math.sin(a) * WALK_RADIUS);
+    let out: number;
+    let lookMirage: number;
+    let fov: number;
+
+    if (d.t < DASH_OUT) {
+      const k = d.t / DASH_OUT;
+      out = ROPE * (1 - Math.pow(1 - k, 2));
+      lookMirage = smoothstep(0, 0.35, d.t);
+      fov = 70 + 10 * k;
+      this.walkPhase += dt * 9;
+    } else if (!d.success) {
+      if (!d.tightened) {
+        d.tightened = true;
+        this.shake = 1;
+        this.sound.ropeTight();
+      }
+      const k = clamp((d.t - DASH_OUT) / (DASH_BACK - DASH_OUT));
+      out = ROPE * (1 - smoothstep(0.15, 1, k)) + Math.sin(k * 30) * 0.06 * (1 - k);
+      lookMirage = 1 - smoothstep(0.3, 1, k);
+      fov = 80 - 10 * smoothstep(0, 0.6, k);
+      m.opacity = Math.max(0, m.opacity - dt * 1.1);
+      m.clarity = Math.max(0, this.clarity() - k);
+      if (d.t >= DASH_BACK) return this.endFailedDash();
+    } else {
+      if (!d.tightened) {
+        d.tightened = true;
+        this.sound.snap();
+        this.ui.toast(TEXT.snap, 2.2);
+        this.ui.flash(true, DASH_FREE - DASH_OUT);
+      }
+      const k = (d.t - DASH_OUT) / (DASH_FREE - DASH_OUT);
+      out = ROPE + k * k * 14;
+      lookMirage = 1;
+      fov = 80 + 18 * k * k;
+      m.opacity = Math.min(1, m.opacity + dt);
+      m.clarity = Math.min(1, this.clarity() + k);
+      this.walkPhase += dt * 12;
+      if (d.t >= DASH_FREE) return this.free();
+    }
+
+    const tangent = new THREE.Vector3(-Math.sin(a), -0.06, Math.cos(a));
+    const look = tangent.lerp(new THREE.Vector3(d.dir.x, 0.02, d.dir.z), lookMirage);
+    cam.position.copy(pathPos).addScaledVector(d.dir, out);
+    cam.position.y += Math.sin(this.walkPhase * 2) * 0.05;
+    cam.up.set((Math.random() - 0.5) * this.shake * 0.04, 1, 0);
+    this.shake = damp(this.shake, 0, 4, dt);
+    cam.lookAt(look.add(cam.position));
+    cam.fov = fov;
+    cam.updateProjectionMatrix();
+  }
+
+  private endFailedDash() {
+    this.dash = null;
+    this.speed = 0;
+    this.combo = 0;
+    this.run.mirageFails++;
+    this.mirageState = 'waiting';
+    this.mirageTimer = this.mirageInterval();
+    this.yard.mirage.opacity = 0;
+    const lines = TEXT.failLines;
+    this.ui.toast(lines[(this.run.mirageFails - 1) % lines.length], 3.5);
+    if (this.run.mirageFails % 5 === 0) this.ui.toast(TEXT.pityHint, 3);
+    saveRun(this.run);
+  }
+
+  private free() {
+    this.done = true;
+    this.dash = null;
+    this.onFreedom(this.run);
+  }
+
+  private refreshHud() {
+    const r = this.run;
+    this.ui.setStats(r.flour, r.laps);
+    this.ui.setUpgrades({
+      mill: {
+        name: MILL_TIERS[tierOf(r.millLevel)],
+        level: r.millLevel,
+        cost: r.millLevel >= MAX_LEVEL ? null : millCost(r.millLevel),
+        affordable: r.millLevel < MAX_LEVEL && r.flour >= millCost(r.millLevel),
+      },
+      scene: {
+        name: SCENE_TIERS[tierOf(r.sceneLevel)],
+        level: r.sceneLevel,
+        cost: r.sceneLevel >= MAX_LEVEL ? null : sceneCost(r.sceneLevel),
+        affordable: r.sceneLevel < MAX_LEVEL && r.flour >= sceneCost(r.sceneLevel),
+      },
+    });
+  }
+}

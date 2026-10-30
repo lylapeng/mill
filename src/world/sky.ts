@@ -1,0 +1,105 @@
+import * as THREE from 'three';
+import type { Palette } from './palette';
+
+// Hand-made gradient sky. Its horizon colour is exactly the fog colour, so
+// distant hills dissolve into it without a seam (the Preetham Sky can't do that).
+
+const vertexShader = /* glsl */ `
+varying vec3 vDir;
+void main() {
+  vDir = position;
+  vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  gl_Position = p.xyww;
+}`;
+
+const fragmentShader = /* glsl */ `
+uniform vec3 uTop;
+uniform vec3 uHorizon;
+uniform vec3 uSunDir;
+uniform vec3 uSunColor;
+uniform vec3 uCloudTint;
+uniform float uCloudCover;
+uniform float uTime;
+varying vec3 vDir;
+
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
+}
+float fbm(vec2 p) {
+  float v = 0.0, a = 0.5;
+  for (int i = 0; i < 5; i++) { v += a * noise(p); p = p * 2.03 + 17.0; a *= 0.5; }
+  return v;
+}
+
+void main() {
+  vec3 d = normalize(vDir);
+  float up = clamp(d.y, 0.0, 1.0);
+  vec3 col = mix(uHorizon, uTop, pow(up, 0.5));
+  float sd = max(dot(d, uSunDir), 0.0);
+
+  // warm glow around the sun and along the horizon beneath it
+  col += uSunColor * (pow(sd, 6.0) * 0.22 + pow(sd, 48.0) * 0.5);
+  col += uSunColor * 0.1 * pow(1.0 - up, 8.0) * (0.4 + 0.6 * sd);
+  col += uSunColor * smoothstep(0.99935, 0.9997, sd) * 5.0;
+
+  if (d.y > 0.0) {
+    vec2 uv = d.xz / (d.y + 0.15) * 1.1 + vec2(uTime * 0.0035, uTime * 0.0012);
+    float n = fbm(uv * 1.7);
+    float m = smoothstep(1.0 - uCloudCover, 1.0 - uCloudCover + 0.3, n);
+    m *= smoothstep(0.0, 0.18, d.y);
+    // self-shadow: sample a little toward the sun
+    float shade = fbm(uv * 1.7 + uSunDir.xz * 0.06);
+    vec3 lit = uCloudTint * (0.82 + 0.3 * smoothstep(0.35, 0.75, shade));
+    lit += uSunColor * pow(sd, 5.0) * 0.35 * (1.0 - m);
+    col = mix(col, mix(lit, uHorizon, 0.25 * (1.0 - up)), m * 0.88);
+  }
+
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+export class Sky {
+  readonly mesh: THREE.Mesh;
+  readonly material: THREE.ShaderMaterial;
+  readonly sunDir = new THREE.Vector3(0, 1, 0);
+
+  constructor() {
+    this.material = new THREE.ShaderMaterial({
+      vertexShader,
+      fragmentShader,
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+      uniforms: {
+        uTop: { value: new THREE.Color() },
+        uHorizon: { value: new THREE.Color() },
+        uSunDir: { value: this.sunDir },
+        uSunColor: { value: new THREE.Color() },
+        uCloudTint: { value: new THREE.Color() },
+        uCloudCover: { value: 0.5 },
+        uTime: { value: 0 },
+      },
+    });
+    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(450, 48, 24), this.material);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = -1;
+  }
+
+  apply(p: Palette, sunAzimuth: number) {
+    const u = this.material.uniforms;
+    u.uTop.value.copy(p.skyTop);
+    u.uHorizon.value.copy(p.skyHorizon);
+    u.uSunColor.value.copy(p.sun);
+    u.uCloudTint.value.copy(p.cloudTint);
+    u.uCloudCover.value = p.cloudCover;
+    const el = THREE.MathUtils.degToRad(p.sunElevation);
+    this.sunDir.set(Math.cos(el) * Math.cos(sunAzimuth), Math.sin(el), Math.cos(el) * Math.sin(sunAzimuth));
+  }
+
+  update(time: number, cameraPosition: THREE.Vector3) {
+    this.material.uniforms.uTime.value = time;
+    this.mesh.position.copy(cameraPosition);
+  }
+}
