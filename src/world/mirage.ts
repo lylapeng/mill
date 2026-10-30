@@ -103,7 +103,9 @@ export class Mirage {
     kinds.forEach((kind, i) => {
       const fig = buildFigure(kind);
       fig.group.traverse((o) => {
-        if (o instanceof THREE.Mesh) o.material = this.material('#5b7a4a', 0);
+        // hair strands are instanced; the mirage shader draws silhouettes only
+        if (o instanceof THREE.InstancedMesh) o.visible = false;
+        else if (o instanceof THREE.Mesh) o.material = this.material('#5b7a4a', 0);
       });
       fig.group.scale.setScalar(1.6);
       fig.group.position.set(-20 + i * 9 + rand() * 4, 2.2, 0.5);

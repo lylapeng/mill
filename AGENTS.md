@@ -2,6 +2,8 @@
 
 第一人称 3D 网页小游戏：选一头牛 / 马 / 驴，绕着磨盘转圈拉磨。磨出的面粉用来升级磨（转得更快、更先进）和景（背景越来越美）。地平线上偶尔浮现草原蜃楼，奔向它有很小的概率挣脱绳子，走进真正的草原，游戏结束。
 
+版本：`v1` 分支是第一个可玩版本的快照，**不要再往上提交**；之后的工作在 `v2` 上。
+
 This file is the project's memory. Read it before working; update it when a decision is made or something non-obvious is learned. Keep it short and current — delete what is no longer true.
 
 ## 边界（不做的事）
@@ -32,6 +34,10 @@ This file is the project's memory. Read it before working; update it when a deci
 - 磨的各档只加不减，院子保留历史；新档"长出来"（缩放动画）。
 - 蜃楼浮在地平线上方并带倒影；成功与失败在前 1.25 秒完全一样，悬念到绳子绷紧那一刻才揭晓。
 - 自由后：草原里会出现此前获得自由的动物（meta 存档）。
+- **马头保留 v1 的比例**（圆后脑 + 斜向下的脸 + 小耳朵靠拢）；试过窄长的"写实"比例，用户反馈看不出是马，否掉了。驴、牛用 `skullGeometry` 的单体雕刻头（`SHAPE` 控制比例）。驴耳不要太大（现 0.26）。
+- 鬃毛 / 额毛 / 尾巴是实例化的发丝（`hair()`，一根锥形带子，根部深、尖端浅，随 `hairClock` 摆动）。骑手视角下脖子大多被头挡住，马鬃只能向右侧垂下才看得见。
+- 铜轮磨的传动必须连得上：大齿轮在立轴上 → 小齿轮压在大齿轮边上 → 传动轴挂在横梁下穿过立柱 → 皮带轮；蒸汽磨的锅炉在那根立柱后面，飞轮用皮带带动皮带轮。不要再有悬空的零件。
+- 界面：字号 / 墨色层级 / 圆角都在 `style.css` 顶部的变量里，新样式只用这些变量。HUD 角落有一层 `.scrim` 暗角，保证亮天空上字也看得清。换档用 `ui.tier()` 出大标题，不用普通 toast。
 
 ## 代码地图
 
@@ -52,7 +58,7 @@ src/
     land.ts      地面、远山、树、草、花、篱笆、房子（按等级"长出来"）
     mill.ts      5 档磨（石磨→木架磨→铜轮磨→蒸汽磨→星辉磨），只加不减
     mirage.ts    蜃楼（含倒影），清晰度随失败次数提高
-    animals.ts   第一人称耳朵/角、远景小动物
+    animals.ts   第一人称头颈、远景整只动物、发丝（鬃毛 / 尾巴）
     particles.ts 尘 / 花粉 / 萤火、花瓣
 ```
 
@@ -75,6 +81,7 @@ src/
   - 立刻出蜃楼：`__mill.game.mirageTimer = 0`；摆到正前方：`__mill.yard.mirage.place(__mill.game.run.angle + Math.PI/2 + 0.3, 105)`
   - 强制冲刺：`__mill.game.promptShown = true; __mill.game.dashIntent()`（`run.mirageFails = 29` 必成功）
   - 模拟迈步：对 `window` 派发 `KeyboardEvent('keydown', { code: 'KeyA' / 'KeyD' })`
+- 截图脚本可以注入一段 JS 再截图（用来触发升级、蜃楼、冲刺），见临时目录里的 `shot.mjs` 写法：`name=?query@等待毫秒#脚本`。
 - 截图验证画面：用 Playwright + Chromium headless shell（`--use-angle=metal`）打开 dev server 等 3 秒再截。
   `npx playwright install` 在本机会卡住，直接从 cdn.playwright.dev 下载 headless shell 的 zip 并用 `executablePath` 更可靠。
   headless Firefox 的 `--screenshot` 在 load 时就截图，拿不到 WebGL 画面，别用。
@@ -84,7 +91,8 @@ src/
 
 - 手机端：HUD 布局更紧凑、触屏提示文案。
 - 已获自由的动物可以再做成"图鉴"。
-- 标题页镜头：现在是绕院子慢转，磨被卡片挡住，可以重新构图。
+- 动物的写实程度受限于程序化几何；若要真正写实，需要 CC0 模型（目前没找到合适的写实牛马驴）。
+- 蜃楼里奔跑的小动物剪影很粗糙，可以重做。
 - 自由草原：可以加天黑、星空、和同伴并肩跑等后续。
 - 首次游玩引导：现在只有一行操作说明。
 - 性能：低端机可降 shadowMap 尺寸、关 bloom。

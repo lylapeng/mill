@@ -10,7 +10,7 @@ import { mulberry32, smoothstep } from '../util';
 
 const COAT: Record<AnimalId, { coat: string; dark: string; inner: string; muzzle: string; sheen: string }> = {
   ox: { coat: '#7a5236', dark: '#3a2a20', inner: '#c79a86', muzzle: '#d8c6b0', sheen: '#c99a72' },
-  horse: { coat: '#8a5531', dark: '#2e2019', inner: '#5a3a2a', muzzle: '#4a3326', sheen: '#d9a070' },
+  horse: { coat: '#7d4526', dark: '#1a1411', inner: '#4a3022', muzzle: '#2e2420', sheen: '#c98a5a' },
   donkey: { coat: '#8f8a83', dark: '#36302c', inner: '#d9cfc2', muzzle: '#e6ddd0', sheen: '#d6d0c6' },
 };
 
@@ -22,7 +22,11 @@ const SHAPE: Record<AnimalId, { wide: number; face: number; taper: number; drop:
 };
 
 const tmpC = new THREE.Color();
+const X = new THREE.Vector3(1, 0, 0);
 const Z = new THREE.Vector3(0, 0, 1);
+
+/** Drives the wind in every mane, forelock and tail; main.ts advances it. */
+export const hairClock = { value: 0 };
 
 function furMaterial(kind: AnimalId) {
   return new THREE.MeshPhysicalMaterial({
@@ -52,6 +56,134 @@ function paint(geo: THREE.BufferGeometry, fn: (x: number, y: number, z: number, 
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   return geo;
+}
+
+// ── hair ────────────────────────────────────────────────────────────────
+// Manes and tails are hundreds of single strands: one tapered ribbon, instanced,
+// each rooted on the body, pointed outward and curving toward the ground.
+
+/** One strand: a ribbon along +y (0..1) narrowing to a point, curling toward -z; darker at the root. */
+const STRAND = (() => {
+  const seg = 6;
+  const pos: number[] = [], col: number[] = [], idx: number[] = [];
+  for (let i = 0; i <= seg; i++) {
+    const t = i / seg;
+    const w = 0.5 * Math.pow(1 - t, 0.6);
+    pos.push(-w, t, -t * t, w, t, -t * t);
+    const k = 0.7 + 0.45 * t;
+    col.push(k, k, k, k, k, k);
+    if (i < seg) idx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+})();
+
+interface Strand {
+  root: THREE.Vector3;
+  /** the way the strand leaves the skin */
+  dir: THREE.Vector3;
+  length: number;
+  width: number;
+  /** how far the tip curls toward the ground */
+  bend: number;
+}
+
+function hair(strands: Strand[], color: string, sway: number, seed = 5) {
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.6 });
+  const uSway = { value: sway };
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = hairClock;
+    shader.uniforms.uSway = uSway;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform float uSway;')
+      .replace(
+        '#include <project_vertex>',
+        `vec4 mvPosition = instanceMatrix * vec4(transformed, 1.0);
+        // the wind moves tips, not roots
+        float seed = dot(instanceMatrix[3].xyz, vec3(41.3, 17.1, 29.7));
+        float reach = position.y * position.y * uSway;
+        mvPosition.x += sin(uTime * 1.9 + seed) * reach;
+        mvPosition.y += cos(uTime * 2.3 + seed) * reach * 0.4;
+        mvPosition.z += sin(uTime * 1.3 + seed * 1.7) * reach * 0.6;
+        mvPosition = modelViewMatrix * mvPosition;
+        gl_Position = projectionMatrix * mvPosition;`,
+      );
+  };
+  const mesh = new THREE.InstancedMesh(STRAND, mat, strands.length);
+  const rand = mulberry32(seed);
+  const base = new THREE.Color(color);
+  const m = new THREE.Matrix4();
+  const x = new THREE.Vector3(), y = new THREE.Vector3(), z = new THREE.Vector3(), t = new THREE.Vector3();
+  const down = new THREE.Vector3(0, -1, 0);
+  strands.forEach((st, i) => {
+    y.copy(st.dir).normalize();
+    // local -z points to the ground, so the curl always falls
+    z.copy(down).addScaledVector(y, -down.dot(y)).negate();
+    if (z.lengthSq() < 1e-6) z.set(0, 0, 1);
+    z.normalize();
+    x.crossVectors(y, z);
+    const roll = (rand() - 0.5) * 1.2;
+    t.copy(x);
+    x.multiplyScalar(Math.cos(roll)).addScaledVector(z, Math.sin(roll));
+    z.multiplyScalar(Math.cos(roll)).addScaledVector(t, -Math.sin(roll));
+    m.makeBasis(x.multiplyScalar(st.width), y.multiplyScalar(st.length), z.multiplyScalar(st.bend));
+    m.setPosition(st.root);
+    mesh.setMatrixAt(i, m);
+    mesh.setColorAt(i, tmpC.copy(base).multiplyScalar(0.8 + rand() * 0.45));
+  });
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
+/** Strands along the crest of a neck: `up` gives the crest side, `fall` the side the hair drops to. */
+function crestHair(
+  count: number,
+  at: (s: number, root: THREE.Vector3, up: THREE.Vector3, along: THREE.Vector3) => void,
+  o: { lift: number; fall: THREE.Vector3; droop?: number; length: [number, number]; width: number; bend: number },
+  seed: number,
+) {
+  const rand = mulberry32(seed);
+  const strands: Strand[] = [];
+  const up = new THREE.Vector3(), along = new THREE.Vector3();
+  for (let i = 0; i < count; i++) {
+    const root = new THREE.Vector3();
+    at(rand(), root, up, along);
+    root.addScaledVector(o.fall, (rand() - 0.5) * 0.03);
+    const dir = up
+      .clone()
+      .multiplyScalar(o.lift)
+      .addScaledVector(o.fall, 0.8 + rand() * 0.3)
+      .addScaledVector(along, (rand() - 0.5) * 0.4);
+    dir.y -= (o.droop ?? 0) * (0.8 + rand() * 0.4);
+    strands.push({
+      root,
+      dir,
+      length: o.length[0] + rand() * (o.length[1] - o.length[0]),
+      width: o.width * (0.7 + rand() * 0.6),
+      bend: o.bend * (0.6 + rand() * 0.8),
+    });
+  }
+  return strands;
+}
+
+/** A tuft growing from a small patch: roots scattered in a box, all leaning one way. */
+function tuft(count: number, centre: THREE.Vector3, spread: THREE.Vector3, dir: THREE.Vector3, length: [number, number], width: number, bend: number, seed: number) {
+  const rand = mulberry32(seed);
+  const strands: Strand[] = [];
+  for (let i = 0; i < count; i++) {
+    strands.push({
+      root: centre.clone().add(new THREE.Vector3((rand() - 0.5) * spread.x, (rand() - 0.5) * spread.y, (rand() - 0.5) * spread.z)),
+      dir: dir.clone().add(new THREE.Vector3((rand() - 0.5) * 0.6, (rand() - 0.5) * 0.4, (rand() - 0.5) * 0.6)),
+      length: length[0] + rand() * (length[1] - length[0]),
+      width: width * (0.7 + rand() * 0.6),
+      bend: bend * (0.5 + rand()),
+    });
+  }
+  return strands;
 }
 
 const skullCache = new Map<AnimalId, THREE.BufferGeometry>();
@@ -113,37 +245,6 @@ function tube(points: THREE.Vector3[], radius: (t: number) => number, squash: TH
     }
   }
   return { geo: weld(geo), curve };
-}
-
-/** Hair lying along the top of a neck: a ribbon that falls to one side. */
-function mane(curve: THREE.Curve<THREE.Vector3>, radius: (t: number) => number, side: THREE.Vector3, flip: number, height: number, from: number, to: number) {
-  const n = 28;
-  const pos: number[] = [];
-  const idx: number[] = [];
-  const p = new THREE.Vector3(), tan = new THREE.Vector3(), up = new THREE.Vector3(), fall = new THREE.Vector3();
-  const rand = mulberry32(11);
-  for (let i = 0; i <= n; i++) {
-    const t = from + (to - from) * (i / n);
-    curve.getPointAt(t, p);
-    curve.getTangentAt(t, tan);
-    up.crossVectors(tan, side).normalize().multiplyScalar(flip);
-    const base = p.clone().addScaledVector(up, radius(t) * 0.9);
-    // hair lies over to one side and a little down, so it reads as a band, not a fin
-    fall.copy(up).multiplyScalar(-0.2).addScaledVector(side, 1).normalize();
-    const h = height * (0.75 + rand() * 0.5) * Math.sin(Math.PI * (0.1 + 0.9 * (i / n)));
-    const mid = base.clone().addScaledVector(up, h * 0.18).addScaledVector(side, h * 0.5);
-    const tip = base.clone().addScaledVector(fall, h).addScaledVector(tan, (rand() - 0.5) * 0.02);
-    pos.push(...base.toArray(), ...mid.toArray(), ...tip.toArray());
-    if (i > 0) {
-      const a = (i - 1) * 3, b = i * 3;
-      idx.push(a, b, a + 1, b, b + 1, a + 1, a + 1, b + 1, a + 2, b + 1, b + 2, a + 2);
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  return geo;
 }
 
 /** A cupped, leaf-shaped ear; opening faces -z. Outer coat with a darker tip, inner lighter. */
@@ -258,7 +359,7 @@ export function buildHead(kind: AnimalId): HeadRig {
 
   // the neck sweeps from behind the skull down out of view
   const radius = (t: number) => (0.1 + 0.15 * t) * wide;
-  const { geo: neckGeo } = tube(
+  const { geo: neckGeo, curve } = tube(
     [new THREE.Vector3(0, -0.46, -0.88), new THREE.Vector3(0, -0.72, -0.62), new THREE.Vector3(0, -1.08, -0.42), new THREE.Vector3(0, -1.55, -0.3)],
     radius,
     new THREE.Vector3(0.8, 1, 1),
@@ -274,6 +375,26 @@ export function buildHead(kind: AnimalId): HeadRig {
   pose.add(new THREE.Mesh(skullGeometry(kind), fur));
   skull.add(pose);
   const ears = dress(kind, pose, tilt);
+
+  if (kind === 'donkey') {
+    // a short, stiff mane standing up along the crest
+    const crest = crestHair(
+      520,
+      (u, root, up, along) => {
+        const t = 0.02 + u * 0.8;
+        curve.getPointAt(t, root);
+        curve.getTangentAt(t, along);
+        up.crossVectors(along, X).normalize();
+        root.addScaledVector(up, radius(t) * 0.92);
+      },
+      { lift: 2.2, fall: X, droop: -1.2, length: [0.06, 0.1], width: 0.012, bend: 0.01 },
+      21,
+    );
+    group.add(hair(crest, '#4a3f37', 0.006));
+  } else {
+    // a curly tuft on the poll, between the horns
+    pose.add(hair(tuft(90, new THREE.Vector3(0, 0.105, 0), new THREE.Vector3(0.15, 0.02, 0.08), new THREE.Vector3(0, 1, -0.4), [0.035, 0.06], 0.022, 0.03, 31), '#4f3322', 0.004));
+  }
 
   return finishHead(group, skull, ears);
 }
@@ -301,6 +422,23 @@ function buildHorseHead(): HeadRig {
   neck.rotation.x = -0.9;
   group.add(neck);
 
+  // the mane: long hair from the poll down the crest, falling to the right
+  const centre = new THREE.Vector3(0, -0.76, -0.6);
+  const axis = new THREE.Vector3(0, Math.cos(0.9), -Math.sin(0.9));
+  const crestUp = new THREE.Vector3(0, Math.sin(0.9), Math.cos(0.9));
+  const crest = crestHair(
+    560,
+    (u, root, up, along) => {
+      const s = 0.5 - Math.pow(u, 1.4) * 0.95;
+      root.copy(centre).addScaledVector(axis, s).addScaledVector(crestUp, (0.157 - 0.094 * s) * 0.92);
+      up.copy(crestUp);
+      along.copy(axis);
+    },
+    { lift: 0.5, fall: X, droop: 0.55, length: [0.2, 0.34], width: 0.011, bend: 0.12 },
+    11,
+  );
+  group.add(hair(crest, c.dark, 0.02));
+
   const back = new THREE.Mesh(solid(new THREE.SphereGeometry(0.15, 28, 20)), fur);
   back.scale.set(wide, 0.95, 1.25);
   skull.add(back);
@@ -312,6 +450,8 @@ function buildHorseHead(): HeadRig {
   nose.position.set(0, -0.25, -0.48);
   nose.scale.set(1, 0.8, 1.1);
   skull.add(nose);
+  // forelock, falling forward over the brow
+  skull.add(hair(tuft(60, new THREE.Vector3(0, 0.11, -0.08), new THREE.Vector3(0.05, 0.01, 0.03), new THREE.Vector3(0, -0.4, -1), [0.08, 0.13], 0.011, 0.04, 12), c.dark, 0.008));
 
   const ears = dress('horse', skull);
   return finishHead(group, skull, ears);
@@ -383,8 +523,20 @@ export function buildFigure(kind: AnimalId) {
   paint(neckGeo, (_x, _y, _z, out) => out.copy(coat));
   g.add(new THREE.Mesh(neckGeo, fur));
   if (kind !== 'ox') {
-    const hair = new THREE.MeshStandardMaterial({ color: c.dark, roughness: 1, side: THREE.DoubleSide });
-    g.add(new THREE.Mesh(mane(curve, nr, Z, -1, kind === 'horse' ? 0.16 : 0.08, 0.05, 1), hair));
+    const horse = kind === 'horse';
+    const crest = crestHair(
+      horse ? 200 : 150,
+      (u, root, up, along) => {
+        const t = 0.05 + u * 0.95;
+        curve.getPointAt(t, root);
+        curve.getTangentAt(t, along);
+        up.crossVectors(along, Z).normalize().negate();
+        root.addScaledVector(up, nr(t) * 0.9);
+      },
+      horse ? { lift: 0.6, fall: Z, length: [0.18, 0.3], width: 0.035, bend: 0.14 } : { lift: 3, fall: Z, length: [0.07, 0.11], width: 0.03, bend: 0.015 },
+      41,
+    );
+    g.add(hair(crest, c.dark, horse ? 0.03 : 0.008));
   }
 
   const skull = new THREE.Group();
@@ -406,11 +558,14 @@ export function buildFigure(kind: AnimalId) {
     tuft.position.set(-1.0, 0.56, 0);
     tuft.scale.set(1, 1.6, 1);
     g.add(tuft);
+  } else if (kind === 'horse') {
+    const root = new THREE.Vector3(-len / 2 - r * 0.85, 1.32, 0);
+    g.add(hair(tuft(110, root, new THREE.Vector3(0.06, 0.06, 0.08), new THREE.Vector3(-0.6, -1, 0), [0.55, 0.8], 0.05, 0.25, 51), c.dark, 0.05));
   } else {
     const root = new THREE.Vector3(-len / 2 - r * 0.85, 1.32, 0);
     const { geo } = tube(
       [root, root.clone().add(new THREE.Vector3(-0.18, -0.15, 0)), root.clone().add(new THREE.Vector3(-0.24, -0.6, 0))],
-      (t) => (kind === 'horse' ? 0.06 + 0.05 * Math.sin(Math.PI * t) : 0.025 + 0.04 * smoothstep(0.6, 1, t)),
+      (t) => 0.025 + 0.04 * smoothstep(0.6, 1, t),
       sideways,
       8,
       10,

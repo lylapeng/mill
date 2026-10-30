@@ -12,6 +12,7 @@ import { loadMeta, loadRun, newRun, saveMeta, saveRun, type RunState } from './s
 import { Ui, formatJin } from './ui';
 import { tierOf } from './config';
 import { Yard } from './world/yard';
+import { hairClock } from './world/animals';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -150,6 +151,7 @@ renderer.setAnimationLoop((now) => {
   timer.update(now);
   const dt = Math.min(0.05, timer.getDelta());
   time += dt;
+  hairClock.value = time;
 
   if (mode === 'freedom' && freedom) {
     freedom.update(dt, time);
