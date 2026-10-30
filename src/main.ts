@@ -10,6 +10,7 @@ import { MillGame } from './game';
 import { Input } from './input';
 import { loadMeta, loadRun, newRun, saveMeta, saveRun, type RunState } from './save';
 import { Ui, formatJin } from './ui';
+import { tierOf } from './config';
 import { Yard } from './world/yard';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -60,6 +61,8 @@ function showTitle() {
   const run = loadRun();
   yard.setSceneLevel(run?.sceneLevel ?? 1, true);
   yard.setMillLevel(run?.millLevel ?? 1, true);
+  // bigger mills need a wider shot to stay clear of the title
+  titleRadius = 8 + tierOf(run?.millLevel ?? 1) * 1.1;
   ui.showHud(false);
   ui.showTitle({
     current: run?.animal ?? null,
@@ -96,11 +99,12 @@ function reachFreedom(run: RunState) {
   ui.flash(false, 3);
   sound.freedomTheme();
   ui.showEnding({
+    animal: run.animal,
     stats: [
-      `拉了 ${run.laps} 圈`,
-      `磨了 ${formatJin(run.flour)} 斤面`,
-      `望见草原 ${run.mirageSeen} 次`,
-      `用了 ${Math.max(1, Math.round(run.playTime / 60))} 分钟`,
+      { value: String(run.laps), label: '圈' },
+      { value: formatJin(run.flour), label: '斤面粉' },
+      { value: String(run.mirageSeen), label: '次望见草原' },
+      { value: String(Math.max(1, Math.round(run.playTime / 60))), label: '分钟' },
     ],
     onAgain: () => {
       ui.flash(true, 1.2);
@@ -140,6 +144,7 @@ const timer = new THREE.Timer();
 timer.connect(document);
 let time = 0;
 let titleAngle = 0;
+let titleRadius = 8;
 
 renderer.setAnimationLoop((now) => {
   timer.update(now);
@@ -152,11 +157,11 @@ renderer.setAnimationLoop((now) => {
     renderer.toneMappingExposure = freedom.exposure;
   } else {
     if (mode === 'title') {
-      // slow orbit around the empty mill
+      // slow orbit around the empty mill, framed in the clear band between title and cards
       titleAngle += dt * 0.04;
-      yard.camera.position.set(Math.cos(titleAngle) * 11, 3.4, Math.sin(titleAngle) * 11);
+      yard.camera.position.set(Math.cos(titleAngle) * titleRadius, 2.9, Math.sin(titleAngle) * titleRadius);
       yard.camera.up.set(0, 1, 0);
-      yard.camera.lookAt(0, 1.6, 0);
+      yard.camera.lookAt(0, 0.45 + (titleRadius - 8) * 0.12, 0);
       yard.mill.update(dt, time, time * 0.15);
     } else {
       game?.update(dt, time);

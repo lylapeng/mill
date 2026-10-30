@@ -14,6 +14,7 @@ const mats = {
   flour: new THREE.MeshStandardMaterial({ color: '#f6f1e6', roughness: 1 }),
   brass: new THREE.MeshStandardMaterial({ color: '#c9a050', metalness: 0.85, roughness: 0.32 }),
   iron: new THREE.MeshStandardMaterial({ color: '#3d3a3a', metalness: 0.6, roughness: 0.45 }),
+  belt: new THREE.MeshStandardMaterial({ color: '#2b211b', roughness: 0.9 }),
   glowGold: new THREE.MeshStandardMaterial({ color: '#2a2418', emissive: '#ffd27a', emissiveIntensity: 1.6 }),
   glowCyan: new THREE.MeshStandardMaterial({ color: '#18242a', emissive: '#a6ecff', emissiveIntensity: 1.1 }),
   slab: new THREE.MeshStandardMaterial({ roughness: 0.95, flatShading: true }),
@@ -65,6 +66,15 @@ function gearGeometry(outer: number, inner: number, teeth: number, depth: number
   return g;
 }
 
+// the brass and steam tiers share one drivetrain; these place its parts
+const CROWN_Y = 2.6;
+const SHAFT_TOP = 3.43;
+const DRIVE_Y = 2.95;
+const PULLEY_Z = 4.95;
+const PULLEY_R = 0.24;
+const FLY_Y = 1.25;
+const FLY_R = 0.7;
+
 export class Mill {
   readonly group = new THREE.Group();
   /** turns with the walking angle: upper stone, axle, beam */
@@ -73,7 +83,8 @@ export class Mill {
   private pop: number[] = [1, 1, 1, 1, 1];
   private tier = -1;
   private flourPile: THREE.Mesh;
-  private pinion = new THREE.Group();
+  /** the line shaft under the crossbeam: pinion, shaft and pulley spin together around z */
+  private drive = new THREE.Group();
   private flywheel = new THREE.Group();
   private rings: THREE.Mesh[] = [];
   private steam: THREE.Points;
@@ -168,7 +179,7 @@ export class Mill {
     g.add(finial);
   }
 
-  /** 铜轮磨: brass bands on the stones, a crown gear and a fast pinion */
+  /** 铜轮磨: brass bands on the stones, a crown gear on the axle driving a line shaft under the crossbeam */
   private buildBrass(g: THREE.Group) {
     for (const [r, y] of [[1.02, 0.52], [1.02, 0.88], [1.33, 0.48]] as const) {
       const band = new THREE.Mesh(new THREE.TorusGeometry(r, 0.035, 6, 40), mats.brass);
@@ -176,71 +187,101 @@ export class Mill {
       band.position.y = y;
       g.add(band);
     }
+    // the axle now reaches up into a bearing under the crossbeam; the crown gear sits on it
+    const turning = new THREE.Group();
+    turning.userData.rotor = true;
+    turning.add(cyl(0.07, 0.07, SHAFT_TOP - 2.9, 8, mats.iron, 2.9));
     const crown = new THREE.Mesh(gearGeometry(0.85, 0.74, 28, 0.12), mats.brass);
     crown.rotation.x = Math.PI / 2;
-    crown.position.y = 2.6;
+    crown.position.y = CROWN_Y;
     crown.castShadow = true;
-    // the crown gear rides on the rotor; wrap so it pops in with this tier
-    const crownHolder = new THREE.Group();
-    crownHolder.add(crown);
-    crownHolder.userData.rotor = true;
-    g.add(crownHolder);
-
-    const pinionGear = new THREE.Mesh(gearGeometry(0.28, 0.21, 10, 0.1, 0.05), mats.brass);
-    this.pinion.add(pinionGear);
-    this.pinion.position.set(1.08, 2.8, 0);
-    this.pinion.rotation.y = Math.PI / 2;
-    g.add(this.pinion);
-    const shaftLen = 4.5;
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, shaftLen, 8), mats.iron);
-    shaft.rotation.z = Math.PI / 2;
-    shaft.position.set(1.08 + shaftLen / 2, 2.8, 0);
-    g.add(shaft);
+    turning.add(crown, cyl(0.15, 0.15, 0.22, 10, mats.brass, CROWN_Y - 0.11));
+    g.add(turning);
     const bearing = box(0.24, 0.24, 0.24, mats.iron);
     bearing.position.set(0, 3.4, 0);
     g.add(bearing);
+
+    // the pinion rests on the crown gear's rim; its shaft runs along under the
+    // crossbeam, through the post, to a pulley on the far side
+    this.drive.position.set(0, DRIVE_Y, 0);
+    const pinion = new THREE.Mesh(gearGeometry(0.28, 0.21, 10, 0.1, 0.05), mats.brass);
+    pinion.position.z = 0.8;
+    const from = 0.7, to = PULLEY_Z + 0.08;
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, to - from, 8), mats.iron);
+    shaft.rotation.x = Math.PI / 2;
+    shaft.position.z = (from + to) / 2;
+    const pulley = new THREE.Mesh(new THREE.CylinderGeometry(PULLEY_R, PULLEY_R, 0.12, 20), mats.brass);
+    pulley.rotation.x = Math.PI / 2;
+    pulley.position.z = PULLEY_Z;
+    this.drive.add(pinion, shaft, pulley);
+    this.drive.traverse((o) => (o.castShadow = true));
+    g.add(this.drive);
+    for (const z of [1.75, 3.3]) {
+      const hanger = box(0.05, 3.43 - DRIVE_Y, 0.05, mats.iron);
+      hanger.position.set(0, (3.43 + DRIVE_Y) / 2, z);
+      const block = box(0.16, 0.14, 0.12, mats.iron);
+      block.position.set(0, DRIVE_Y, z);
+      g.add(hanger, block);
+    }
+    const plate = box(0.34, 0.3, 0.04, mats.iron);
+    plate.position.set(0, DRIVE_Y, 4.5 + 0.17);
+    g.add(plate);
   }
 
-  /** 蒸汽磨: a boiler outside the path drives the shaft; steam drifts from its chimney */
+  /** 蒸汽磨: a boiler behind the far post; its flywheel drives the line shaft by a belt */
   private buildSteam(g: THREE.Group) {
-    const bx = 5.8;
+    const bz = 6.15;
     const boiler = cyl(0.75, 0.8, 2.0, 18, mats.iron);
-    boiler.position.x = bx;
+    boiler.position.z = bz;
     g.add(boiler);
     const dome = new THREE.Mesh(new THREE.SphereGeometry(0.75, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2), mats.brass);
-    dome.position.set(bx, 2.0, 0);
+    dome.position.set(0, 2.0, bz);
     g.add(dome);
     for (const y of [0.3, 1.0, 1.7]) {
       const band = new THREE.Mesh(new THREE.TorusGeometry(0.79, 0.03, 6, 36), mats.brass);
       band.rotation.x = Math.PI / 2;
-      band.position.set(bx, y, 0);
+      band.position.set(0, y, bz);
       g.add(band);
     }
     const chimney = cyl(0.12, 0.16, 3.0, 10, mats.iron);
-    chimney.position.set(bx + 0.3, 2.3, 0.25);
+    chimney.position.set(0.3, 2.3, bz + 0.25);
     g.add(chimney);
     const firebox = box(0.5, 0.4, 0.06, mats.glowGold);
-    firebox.position.set(bx - 0.5, 0.45, 0.6);
-    firebox.rotation.y = -0.6;
+    firebox.position.set(0.6, 0.45, bz + 0.5);
+    firebox.rotation.y = 0.9;
     g.add(firebox);
 
-    // flywheel on the boiler's side
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.75, 0.07, 6, 30), mats.iron);
+    // flywheel between boiler and post, in line with the pulley above it
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(FLY_R, 0.07, 6, 30), mats.iron);
     this.flywheel.add(rim);
     for (let i = 0; i < 6; i++) {
-      const spoke = box(0.05, 1.45, 0.05, mats.iron);
+      const spoke = box(0.05, FLY_R * 2 - 0.05, 0.05, mats.iron);
       spoke.rotation.z = (i / 6) * Math.PI;
       this.flywheel.add(spoke);
     }
-    this.flywheel.position.set(bx, 1.3, -0.95);
+    this.flywheel.position.set(0, FLY_Y, PULLEY_Z);
     g.add(this.flywheel);
+    const axle = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, bz - 0.75 - PULLEY_Z, 8), mats.iron);
+    axle.rotation.x = Math.PI / 2;
+    axle.position.set(0, FLY_Y, (PULLEY_Z + bz - 0.75) / 2);
+    g.add(axle);
+    // the belt: two straight runs from the pulley rim down to the flywheel rim
+    for (const side of [-1, 1]) {
+      const top = new THREE.Vector2(side * PULLEY_R, DRIVE_Y);
+      const bottom = new THREE.Vector2(side * FLY_R, FLY_Y);
+      const run = top.clone().sub(bottom);
+      const belt = box(0.025, run.length(), 0.08, mats.belt);
+      belt.position.set((top.x + bottom.x) / 2, (top.y + bottom.y) / 2, PULLEY_Z);
+      belt.rotation.z = -Math.atan2(run.x, run.y);
+      g.add(belt);
+    }
 
     // steam: soft puffs rising and widening
     const count = 60;
     const pos = new Float32Array(count * 3);
     const seed = new Float32Array(count);
     for (let i = 0; i < count; i++) {
-      pos.set([bx + 0.3, 5.3, 0.25], i * 3);
+      pos.set([0.3, 5.3, bz + 0.25], i * 3);
       seed[i] = i / count;
     }
     const geo = new THREE.BufferGeometry();
@@ -322,8 +363,9 @@ export class Mill {
     for (const g of this.tierGroups) {
       for (const child of g.children) if (child.userData.rotor) child.rotation.y = -angle;
     }
-    this.pinion.rotation.x = angle * 3.1;
-    this.flywheel.rotation.z = -angle * 2.4;
+    this.drive.rotation.z = angle * 3.1;
+    // an open belt: same direction, slowed by the pulley/flywheel ratio
+    this.flywheel.rotation.z = angle * 3.1 * (PULLEY_R / FLY_R);
     this.rings.forEach((r, i) => {
       r.rotation.z = time * (0.15 + i * 0.07) * (i % 2 ? -1 : 1);
       r.position.y = 2.0 + i * 0.25 + Math.sin(time * 0.8 + i) * 0.06;

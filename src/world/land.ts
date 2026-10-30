@@ -172,37 +172,44 @@ export class Land {
     // nearest trees appear first so the yard changes visibly
     this.treeItems.sort((a, b) => a.threshold - b.threshold);
 
-    const trunkGeo = new THREE.CylinderGeometry(0.12, 0.2, 2.2, 6);
-    trunkGeo.translate(0, 1.1, 0);
     this.trunks = new THREE.InstancedMesh(
-      trunkGeo,
+      trunkGeometry(),
       new THREE.MeshStandardMaterial({ color: '#6a4e38', flatShading: true, roughness: 1 }),
       this.treeItems.length,
     );
     this.trunks.castShadow = true;
     this.group.add(this.trunks);
 
+    // a crown is a cluster: one big blob on top, a ring of smaller ones below;
+    // about one tree in four is a slender poplar, blobs stacked up the trunk
     for (let t = 0; t < this.treeItems.length; t++) {
       const tree = this.treeItems[t];
-      const blobs = 3;
-      for (let b = 0; b < blobs; b++) {
-        const ang = (b / blobs) * Math.PI * 2 + tree.r * 6;
-        const off = new THREE.Vector3(Math.cos(ang) * 0.55, 2.4 + b * 0.35, Math.sin(ang) * 0.55);
-        off.multiplyScalar(tree.scale);
+      const poplar = rand() < 0.25;
+      const blobs: [number, number, number, number][] = [];
+      if (poplar) {
+        for (let b = 0; b < 4; b++) blobs.push([(rand() - 0.5) * 0.15, 2.0 + b * 0.62, (rand() - 0.5) * 0.15, 0.62 - b * 0.08]);
+      } else {
+        blobs.push([0, 2.95, 0, 1.0]);
+        const ring = 4;
+        for (let b = 0; b < ring; b++) {
+          const ang = (b / ring) * Math.PI * 2 + tree.r * 6 + rand() * 0.6;
+          blobs.push([Math.cos(ang) * 0.72, 2.35 + rand() * 0.3, Math.sin(ang) * 0.72, 0.68 + rand() * 0.18]);
+        }
+      }
+      for (const [bx, by, bz, bs] of blobs) {
         this.crownItems.push({
-          pos: off.add(tree.pos),
-          rotY: rand() * Math.PI,
-          scale: tree.scale * (0.85 + rand() * 0.4),
+          pos: new THREE.Vector3(bx, by, bz).multiplyScalar(tree.scale).add(tree.pos),
+          rotY: rand() * Math.PI * 2,
+          scale: tree.scale * bs * (poplar ? 1 : 0.95 + rand() * 0.15),
           threshold: tree.threshold,
           r: tree.r,
           tree: t,
         });
       }
     }
-    const crownGeo = new THREE.IcosahedronGeometry(1, 0);
-    const crownMat = new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.9 });
+    const crownMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 });
     addSway(crownMat, this.time, 0.03);
-    this.crowns = new THREE.InstancedMesh(crownGeo, crownMat, this.crownItems.length);
+    this.crowns = new THREE.InstancedMesh(crownGeometry(), crownMat, this.crownItems.length);
     this.crowns.castShadow = true;
     this.crowns.setColorAt(0, tmpC.set('#fff'));
     this.group.add(this.crowns);
@@ -394,6 +401,44 @@ export class Land {
       obj.scale.set(1, Math.max(1e-3, g), 1);
     }
   }
+}
+
+/** A tapered, slightly leaning trunk with two branches reaching into the crown. */
+function trunkGeometry() {
+  const main = new THREE.CylinderGeometry(0.09, 0.19, 2.6, 7, 3);
+  main.translate(0, 1.3, 0);
+  const p = main.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < p.count; i++) p.setX(i, p.getX(i) + Math.pow(p.getY(i) / 2.6, 2) * 0.12);
+  const branch = (lean: number, turn: number, y: number) => {
+    const b = new THREE.CylinderGeometry(0.035, 0.07, 1.0, 5);
+    b.translate(0, 0.5, 0);
+    b.rotateZ(lean);
+    b.rotateY(turn);
+    b.translate(0.04, y, 0);
+    return b;
+  };
+  return mergeGeometries([main, branch(0.75, 0.4, 1.55), branch(-0.65, -0.9, 1.85)]);
+}
+
+/** A leafy blob: a jittered icosphere, darker underneath (baked ambient occlusion). */
+function crownGeometry() {
+  const geo = new THREE.IcosahedronGeometry(1, 1);
+  const p = geo.attributes.position as THREE.BufferAttribute;
+  const colors = new Float32Array(p.count * 3);
+  const v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    // jitter by position, so the copies of a shared corner move together
+    const n = Math.sin(v.x * 12.9 + v.y * 78.2 + v.z * 37.7) * 43758.5;
+    v.multiplyScalar(0.86 + 0.24 * (n - Math.floor(n)));
+    v.y *= 0.82;
+    p.setXYZ(i, v.x, v.y, v.z);
+    const shade = 0.55 + 0.5 * smoothstep(-0.9, 0.8, v.y);
+    colors.set([shade, shade, shade], i * 3);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.computeVertexNormals();
+  return geo;
 }
 
 /** Push a radius off the walking path so nothing grows where you step. */

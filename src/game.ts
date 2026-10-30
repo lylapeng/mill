@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 import {
-  ANIMALS, ECONOMY, MAX_LEVEL, MILL_TIERS, MIRAGE, RHYTHM, SCENE_TIERS, TEXT, WALK_RADIUS,
+  ANIMALS, ECONOMY, LEVELS_PER_TIER, MAX_LEVEL, MILL_TIERS, MIRAGE, RHYTHM, SCENE_TIERS, TEXT, WALK_RADIUS,
   freedomChance, millCost, sceneCost, tierOf, yieldPerLap, type AnimalDef,
 } from './config';
 import type { Sound } from './audio';
 import type { Input } from './input';
 import { saveRun, type RunState } from './save';
-import type { Ui } from './ui';
+import type { Ui, UpgradeInfo } from './ui';
 import { buildHead, type HeadRig } from './world/animals';
 import type { Yard } from './world/yard';
 import { clamp, damp, smoothstep } from './util';
@@ -51,6 +51,8 @@ export class MillGame {
   /** head turn toward the mill (radians, positive = inward) */
   private yaw = HEAD_YAW;
   private glance = 0;
+  /** flour ground since the last lap closed */
+  private lapFlour = 0;
 
   private mirageState: MirageState = 'locked';
   private mirageTimer = 0;
@@ -87,6 +89,7 @@ export class MillGame {
     this.yard.camera.remove(this.head.group);
     this.yard.mirage.opacity = 0;
     this.ui.prompt(false);
+    this.ui.mirageHint(0, 0);
   }
 
   // ── input ────────────────────────────────────────────────────────────
@@ -127,6 +130,7 @@ export class MillGame {
     const dir = this.yard.mirage.group.position.clone().sub(cam.position).setY(0).normalize();
     this.dash = { t: 0, success, dir, from: cam.position.clone(), tightened: false };
     this.ui.prompt(false);
+    this.ui.mirageHint(0, 0);
     this.promptShown = false;
     this.sound.step(1.2);
   }
@@ -147,11 +151,11 @@ export class MillGame {
       this.run.millLevel = next;
       this.yard.setMillLevel(next);
       this.glance = tierUp ? 3.2 : 1.6;
-      if (tierUp) this.ui.toast(TEXT.millTierLines[tierOf(next)]);
+      if (tierUp) this.ui.tier('mill', tierOf(next), MILL_TIERS[tierOf(next)], TEXT.millTierLines[tierOf(next)]);
     } else {
       this.run.sceneLevel = next;
       this.yard.setSceneLevel(next);
-      if (tierUp) this.ui.toast(TEXT.sceneTierLines[tierOf(next)]);
+      if (tierUp) this.ui.tier('scene', tierOf(next), SCENE_TIERS[tierOf(next)], TEXT.sceneTierLines[tierOf(next)]);
       if (next === MIRAGE.unlockSceneLevel) {
         this.unlockMirage();
         this.ui.toast(TEXT.mirageUnlock);
@@ -218,8 +222,14 @@ export class MillGame {
     const before = Math.floor(this.run.angle / (Math.PI * 2));
     this.run.angle += dTheta;
     const after = Math.floor(this.run.angle / (Math.PI * 2));
-    if (after > before) this.run.laps += after - before;
-    this.run.flour += (yieldPerLap(this.run.millLevel) * this.animal.strength * dTheta) / (Math.PI * 2);
+    const gained = (yieldPerLap(this.run.millLevel) * this.animal.strength * dTheta) / (Math.PI * 2);
+    this.run.flour += gained;
+    this.lapFlour += gained;
+    if (after > before) {
+      this.run.laps += after - before;
+      this.ui.lapGain(this.lapFlour);
+      this.lapFlour = 0;
+    }
 
     // the cadence fades if you stop
     if (performance.now() / 1000 - this.lastStepAt > RHYTHM.maxInterval * 1.5 && this.combo > 0) {
@@ -311,12 +321,16 @@ export class MillGame {
     this.tmpPos.copy(m.group.position).sub(cam.position).setY(0).normalize();
     const facing = this.tmpLook.dot(this.tmpPos) > Math.cos(MIRAGE.promptCone);
     const show = facing && env > 0.45;
+    // off to one side: which side is the sign of (toMirage · camera right)
+    const side = -this.tmpLook.z * this.tmpPos.x + this.tmpLook.x * this.tmpPos.z > 0 ? 1 : -1;
+    this.ui.mirageHint(facing ? 0 : side, env);
     if (show !== this.promptShown) {
       this.promptShown = show;
       this.ui.prompt(show);
     }
 
     if (t > fadeIn + hold + fadeOut) {
+      this.ui.mirageHint(0, 0);
       this.mirageState = 'waiting';
       this.mirageTimer = this.mirageInterval();
       m.opacity = 0;
@@ -403,20 +417,23 @@ export class MillGame {
 
   private refreshHud() {
     const r = this.run;
+    const info = (level: number, cost: (l: number) => number, tiers: string[]): UpgradeInfo => {
+      const maxed = level >= MAX_LEVEL;
+      const c = maxed ? null : cost(level);
+      const opens = !maxed && tierOf(level + 1) !== tierOf(level);
+      return {
+        name: tiers[tierOf(level)],
+        level,
+        step: (level - 1) % LEVELS_PER_TIER,
+        cost: c,
+        progress: c === null ? 1 : clamp(r.flour / c),
+        nextTier: opens ? tiers[tierOf(level + 1)] : null,
+      };
+    };
     this.ui.setStats(r.flour, r.laps);
     this.ui.setUpgrades({
-      mill: {
-        name: MILL_TIERS[tierOf(r.millLevel)],
-        level: r.millLevel,
-        cost: r.millLevel >= MAX_LEVEL ? null : millCost(r.millLevel),
-        affordable: r.millLevel < MAX_LEVEL && r.flour >= millCost(r.millLevel),
-      },
-      scene: {
-        name: SCENE_TIERS[tierOf(r.sceneLevel)],
-        level: r.sceneLevel,
-        cost: r.sceneLevel >= MAX_LEVEL ? null : sceneCost(r.sceneLevel),
-        affordable: r.sceneLevel < MAX_LEVEL && r.flour >= sceneCost(r.sceneLevel),
-      },
+      mill: info(r.millLevel, millCost, MILL_TIERS),
+      scene: info(r.sceneLevel, sceneCost, SCENE_TIERS),
     });
   }
 }

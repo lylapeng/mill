@@ -1,12 +1,23 @@
-import { ANIMALS, TEXT, type AnimalId } from './config';
+import { ANIMALS, LEVELS_PER_TIER, TEXT, type AnimalId } from './config';
+import { damp } from './util';
 
 // DOM overlay. Built once; game code calls these methods and never touches the DOM.
 
 export interface UpgradeInfo {
   name: string;
   level: number;
+  /** 0..LEVELS_PER_TIER-1: how far into the current tier */
+  step: number;
   cost: number | null;
-  affordable: boolean;
+  /** flour / cost, clamped to 0..1 */
+  progress: number;
+  /** the tier the next level opens, if it opens one */
+  nextTier: string | null;
+}
+
+export interface EndingStat {
+  value: string;
+  label: string;
 }
 
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = '') => {
@@ -15,6 +26,20 @@ const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = '') =
   if (text) el.textContent = text;
   return el;
 };
+
+const svg = (markup: string, cls = '') => {
+  const wrap = h('span', cls);
+  wrap.innerHTML = markup;
+  return wrap;
+};
+
+const HOOF = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6c-4.5 0-7.3 3.8-7.3 8.4 0 3.6 1.5 6.7 3.4 8.1.8.6 1.8 0 1.8-.9v-2.9c0-1 .9-1.7 2.1-1.7s2.1.7 2.1 1.7v2.9c0 .9 1 1.5 1.8.9 1.9-1.4 3.4-4.5 3.4-8.1 0-4.6-2.8-8.4-7.3-8.4z"/></svg>`;
+const SOUND_ON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.2L12 5.6v12.8l-4.8-3.9H4z" fill="currentColor" stroke="none"/><path d="M15.4 9.2a4 4 0 0 1 0 5.6M17.8 6.8a7.4 7.4 0 0 1 0 10.4"/></svg>`;
+const SOUND_OFF = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.2L12 5.6v12.8l-4.8-3.9H4z" fill="currentColor" stroke="none"/><path d="M15.5 9.5l5 5M20.5 9.5l-5 5"/></svg>`;
+
+const CHEVRON = `<svg viewBox="0 0 14 22" aria-hidden="true"><path d="M3 3l8 8-8 8"/></svg>`;
+
+const ORDINAL = ['一', '二', '三', '四', '五'];
 
 export function formatJin(n: number) {
   if (n >= 1e8) return (n / 1e8).toFixed(2) + ' 亿';
@@ -34,25 +59,42 @@ function stats(s: { power: number; speed: number; will: number }) {
   return row;
 }
 
+interface Card {
+  el: HTMLButtonElement;
+  name: HTMLElement;
+  pips: HTMLElement[];
+  level: HTMLElement;
+  next: HTMLElement;
+  cost: HTMLElement;
+  bar: HTMLElement;
+}
+
+type Notice = { kind: 'line'; text: string; seconds: number } | { kind: 'tier'; label: string; name: string; line: string };
+
 export class Ui {
   private root = h('div', 'ui');
   private title = h('section', 'title');
   private hud = h('section', 'hud hidden');
   private flourEl = h('div', 'flour-value');
+  private gainEl = h('div', 'gain');
   private lapsEl = h('div', 'laps');
-  private hoofL = h('div', 'hoof', 'A');
-  private hoofR = h('div', 'hoof', 'D');
+  private hoofL = h('div', 'hoof');
+  private hoofR = h('div', 'hoof');
   private cadenceBar = h('div', 'cadence-fill');
-  private cadenceLabel = h('div', 'cadence-label', '步调');
-  private cards: Record<'mill' | 'scene', { el: HTMLButtonElement; name: HTMLElement; level: HTMLElement; cost: HTMLElement }>;
-  private toasts = h('div', 'toasts');
+  private cadenceLabel = h('div', 'cadence-label');
+  private cards: Record<'mill' | 'scene', Card>;
+  private notices = h('div', 'notices');
   private promptEl = h('div', 'prompt');
+  private hintL = h('div', 'edge-hint left');
+  private hintR = h('div', 'edge-hint right');
   private flashEl = h('div', 'flash');
   private ending = h('section', 'ending hidden');
-  private muteBtn = h('button', 'mute', '♪');
+  private muteBtn = h('button', 'mute');
   private last = { flour: '', laps: -1, up: '' };
-  private toastQueue: { text: string; seconds: number }[] = [];
-  private toastBusy = false;
+  private shownFlour = -1;
+  private statsAt = 0;
+  private queue: Notice[] = [];
+  private busy = false;
 
   onUpgrade: (kind: 'mill' | 'scene') => void = () => {};
   onMute: () => void = () => {};
@@ -62,37 +104,51 @@ export class Ui {
 
     // HUD
     const stats = h('div', 'stats');
-    const flourLabel = h('div', 'flour-label', '面粉');
     const flourUnit = h('span', 'unit', '斤');
     const flourRow = h('div', 'flour-row');
-    flourRow.append(this.flourEl, flourUnit);
-    stats.append(flourLabel, flourRow, this.lapsEl);
+    flourRow.append(this.flourEl, flourUnit, this.gainEl);
+    stats.append(h('div', 'flour-label', '面粉'), flourRow, this.lapsEl);
 
-    const make = (kind: 'mill' | 'scene', label: string, key: string) => {
+    const make = (kind: 'mill' | 'scene', label: string, key: string): Card => {
       const el = h('button', 'card');
       const head = h('div', 'card-head');
-      head.append(h('span', 'card-kind', label), h('span', 'card-key', key));
+      head.append(h('span', 'card-kind', label), h('span', 'key', key));
       const name = h('div', 'card-name');
-      const level = h('div', 'card-level');
+      const meta = h('div', 'card-meta');
+      const pipRow = h('span', 'card-pips');
+      const pips = Array.from({ length: LEVELS_PER_TIER }, () => pipRow.appendChild(h('i')));
+      const level = h('span', 'card-level');
+      meta.append(pipRow, level);
+      const next = h('div', 'card-next');
       const cost = h('div', 'card-cost');
-      el.append(head, name, level, cost);
+      const track = h('div', 'card-track');
+      const bar = h('div', 'card-bar');
+      track.append(bar);
+      el.append(head, name, meta, next, cost, track);
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         this.onUpgrade(kind);
       });
       el.addEventListener('pointerdown', (e) => e.stopPropagation());
-      return { el, name, level, cost };
+      return { el, name, pips, level, next, cost, bar };
     };
     this.cards = { mill: make('mill', '磨', '1'), scene: make('scene', '景', '2') };
     const upgrades = h('div', 'upgrades');
     upgrades.append(this.cards.mill.el, this.cards.scene.el);
 
+    const foot = (el: HTMLElement, key: string) => {
+      el.append(svg(HOOF, 'hoof-icon'));
+      const wrap = h('div', 'hoof-wrap');
+      wrap.append(el, h('span', 'key', key));
+      return wrap;
+    };
     const steps = h('div', 'steps');
     const cadence = h('div', 'cadence');
-    cadence.append(this.cadenceBar);
+    cadence.append(this.cadenceBar, h('i', 'cadence-mark'));
     const cadenceWrap = h('div', 'cadence-wrap');
     cadenceWrap.append(this.cadenceLabel, cadence);
-    steps.append(this.hoofL, cadenceWrap, this.hoofR);
+    steps.append(foot(this.hoofL, 'A'), cadenceWrap, foot(this.hoofR, 'D'));
+    this.cadence(0);
 
     this.muteBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -100,10 +156,17 @@ export class Ui {
     });
     this.muteBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
     this.muteBtn.title = '静音 (M)';
+    this.setMuted(false);
+
+    for (const el of [this.hintL, this.hintR]) {
+      const mark = svg(CHEVRON, 'edge-mark');
+      mark.prepend(h('span', '', '草原'));
+      el.append(mark);
+    }
 
     this.promptEl.append(h('div', 'prompt-q', TEXT.miragePrompt), h('div', 'prompt-a', TEXT.mirageAction));
-    this.hud.append(stats, upgrades, steps, this.muteBtn);
-    this.root.append(this.hud, this.toasts, this.promptEl, this.title, this.ending, this.flashEl);
+    this.hud.append(h('div', 'scrim'), this.hintL, this.hintR, stats, upgrades, steps, this.muteBtn);
+    this.root.append(this.hud, this.notices, this.promptEl, this.title, this.ending, this.flashEl);
   }
 
   // ── title ────────────────────────────────────────────────────────────
@@ -116,34 +179,31 @@ export class Ui {
   }) {
     this.title.replaceChildren();
     this.title.classList.remove('hidden', 'leaving');
-    const inner = h('div', 'title-inner');
-    inner.append(h('h1', '', TEXT.title), h('p', 'subtitle', TEXT.subtitle));
 
+    const top = h('header', 'title-top');
+    top.append(h('h1', '', TEXT.title), h('p', 'subtitle', TEXT.subtitle));
+
+    const bottom = h('div', 'title-bottom');
     if (opts.current) {
-      const cont = h('button', 'continue', `继续拉磨 · ${ANIMALS[opts.current].name}`);
+      const cont = h('button', 'pill continue', `继续拉磨 · ${ANIMALS[opts.current].name}`);
       cont.addEventListener('click', opts.onContinue);
-      inner.append(cont, h('p', 'or', '或者，换一头重新开始'));
+      bottom.append(cont, h('p', 'or', '或者，换一头重新开始'));
     }
-
     const row = h('div', 'animals');
     for (const a of Object.values(ANIMALS)) {
       const card = h('button', 'animal');
-      card.append(
-        h('div', 'animal-name', a.name),
-        h('div', 'animal-blurb', a.blurb),
-        stats(a.stats),
-      );
+      card.append(h('div', 'animal-name', a.name), h('div', 'animal-blurb', a.blurb), stats(a.stats));
       card.addEventListener('click', () => opts.onPick(a.id));
       row.append(card);
     }
-    inner.append(row);
-
+    bottom.append(row);
     if (opts.freed.length) {
-      const names = opts.freed.map((id) => ANIMALS[id].name).join(' ');
-      inner.append(h('p', 'freed', `已经走进草原的：${names}`));
+      const names = opts.freed.map((id) => ANIMALS[id].name).join('　');
+      bottom.append(h('p', 'freed', `已经走进草原的　${names}`));
     }
-    inner.append(h('p', 'controls', TEXT.controls));
-    this.title.append(inner);
+    bottom.append(h('p', 'controls', TEXT.controls));
+
+    this.title.append(top, bottom);
   }
 
   hideTitle() {
@@ -153,12 +213,22 @@ export class Ui {
 
   showHud(v: boolean) {
     this.hud.classList.toggle('hidden', !v);
+    if (v) this.shownFlour = -1;
   }
 
   // ── HUD ──────────────────────────────────────────────────────────────
 
   setStats(flour: number, laps: number) {
-    const f = formatJin(flour);
+    // earning is already smooth; spending counts down instead of jumping
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - this.statsAt) / 1000);
+    this.statsAt = now;
+    if (this.shownFlour < 0 || flour >= this.shownFlour) this.shownFlour = flour;
+    else {
+      this.shownFlour = damp(this.shownFlour, flour, 6, dt);
+      if (this.shownFlour - flour < Math.max(0.05, flour * 0.002)) this.shownFlour = flour;
+    }
+    const f = formatJin(this.shownFlour);
     if (f !== this.last.flour) {
       this.last.flour = f;
       this.flourEl.textContent = f;
@@ -169,18 +239,37 @@ export class Ui {
     }
   }
 
+  /** A faint "+n" beside the flour count when a lap closes. */
+  lapGain(amount: number) {
+    if (amount <= 0) return;
+    this.gainEl.textContent = `+${formatJin(amount)}`;
+    this.gainEl.classList.remove('in');
+    void this.gainEl.offsetWidth;
+    this.gainEl.classList.add('in');
+  }
+
   setUpgrades(u: { mill: UpgradeInfo; scene: UpgradeInfo }) {
-    const key = JSON.stringify(u);
+    for (const kind of ['mill', 'scene'] as const) {
+      const info = u[kind];
+      const c = this.cards[kind];
+      const ready = info.progress >= 1;
+      c.bar.style.transform = `scaleX(${info.cost === null ? 1 : info.progress.toFixed(3)})`;
+      c.el.classList.toggle('ready', ready);
+    }
+    const key = JSON.stringify([u.mill.level, u.scene.level]);
     if (key === this.last.up) return;
     this.last.up = key;
     for (const kind of ['mill', 'scene'] as const) {
       const info = u[kind];
       const c = this.cards[kind];
+      const maxed = info.cost === null;
       c.name.textContent = info.name;
       c.level.textContent = `Lv ${info.level}`;
-      c.cost.textContent = info.cost === null ? '已至极致' : `${formatJin(info.cost)} 斤`;
-      c.el.classList.toggle('ready', info.affordable);
-      c.el.classList.toggle('maxed', info.cost === null);
+      c.pips.forEach((p, i) => p.classList.toggle('on', maxed || i <= info.step));
+      c.next.textContent = info.nextTier ? `下一级　${info.nextTier}` : '';
+      c.next.classList.toggle('hidden', !info.nextTier);
+      c.cost.textContent = maxed ? '已至极致' : `${formatJin(info.cost!)} 斤`;
+      c.el.classList.toggle('maxed', maxed);
     }
   }
 
@@ -193,9 +282,11 @@ export class Ui {
   }
 
   cadence(v: number) {
+    const steady = v > 0.75;
     this.cadenceBar.style.transform = `scaleX(${v.toFixed(3)})`;
-    this.cadenceLabel.textContent = v > 0.75 ? '步调 · 稳' : '步调';
-    this.cadenceLabel.classList.toggle('steady', v > 0.75);
+    this.cadenceLabel.textContent = steady ? '步调　稳' : '步调';
+    this.cadenceLabel.classList.toggle('steady', steady);
+    this.cadenceBar.classList.toggle('steady', steady);
   }
 
   stumble() {
@@ -215,34 +306,60 @@ export class Ui {
 
   setMuted(m: boolean) {
     this.muteBtn.classList.toggle('off', m);
+    this.muteBtn.innerHTML = m ? SOUND_OFF : SOUND_ON;
   }
 
   /** Lines appear one at a time, centred, then fade. */
   toast(text: string, seconds = 4) {
     if (!text) return;
-    this.toastQueue.push({ text, seconds });
-    if (!this.toastBusy) this.nextToast();
+    this.enqueue({ kind: 'line', text, seconds });
   }
 
-  private nextToast() {
-    const item = this.toastQueue.shift();
+  /** A new tier gets its own moment: its name, large, and one line beneath. */
+  tier(kind: 'mill' | 'scene', tier: number, name: string, line: string) {
+    this.enqueue({ kind: 'tier', label: `${kind === 'mill' ? '磨' : '景'}　第${ORDINAL[tier]}档`, name, line });
+  }
+
+  private enqueue(n: Notice) {
+    this.queue.push(n);
+    if (!this.busy) this.nextNotice();
+  }
+
+  private nextNotice() {
+    const item = this.queue.shift();
     if (!item) {
-      this.toastBusy = false;
+      this.busy = false;
       return;
     }
-    this.toastBusy = true;
-    const el = h('div', 'toast', item.text);
-    this.toasts.append(el);
-    requestAnimationFrame(() => el.classList.add('in'));
+    this.busy = true;
+    let el: HTMLElement;
+    let seconds: number;
+    if (item.kind === 'line') {
+      el = h('div', 'notice toast', item.text);
+      seconds = item.seconds;
+    } else {
+      el = h('div', 'notice tier-card');
+      el.append(h('div', 'tier-label', item.label), h('div', 'tier-name', item.name));
+      if (item.line) el.append(h('div', 'tier-line', item.line));
+      seconds = 5.5;
+    }
+    this.notices.append(el);
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('in')));
     setTimeout(() => {
       el.classList.remove('in');
-      setTimeout(() => el.remove(), 1200);
-      this.nextToast();
-    }, item.seconds * 1000);
+      setTimeout(() => el.remove(), 1400);
+      setTimeout(() => this.nextNotice(), 500);
+    }, seconds * 1000);
   }
 
   prompt(v: boolean) {
     this.promptEl.classList.toggle('in', v);
+  }
+
+  /** A soft glow at the screen edge on the side the mirage is (side 0 hides it). */
+  mirageHint(side: -1 | 0 | 1, strength: number) {
+    this.hintL.style.opacity = side < 0 ? strength.toFixed(3) : '0';
+    this.hintR.style.opacity = side > 0 ? strength.toFixed(3) : '0';
   }
 
   /** Fade to (or from) white over `seconds`. */
@@ -253,23 +370,34 @@ export class Ui {
 
   // ── ending ───────────────────────────────────────────────────────────
 
-  showEnding(opts: { stats: string[]; onAgain: () => void }) {
+  showEnding(opts: { animal: AnimalId; stats: EndingStat[]; onAgain: () => void }) {
     this.ending.replaceChildren();
     this.ending.classList.remove('hidden');
+    const at = (el: HTMLElement, s: number) => {
+      el.style.animationDelay = `${s}s`;
+      return el;
+    };
     const lines = h('div', 'ending-lines');
-    TEXT.freeLines.forEach((t, i) => {
-      const p = h('p', i === 0 ? 'ending-main' : 'ending-sub', t);
-      p.style.animationDelay = `${2 + i * 3}s`;
-      lines.append(p);
-    });
-    const stats = h('p', 'ending-stats', opts.stats.join('　·　'));
-    stats.style.animationDelay = '8s';
-    const again = h('button', 'again', '再活一次');
-    again.style.animationDelay = '10s';
+    TEXT.freeLines.forEach((t, i) => lines.append(at(h('p', i === 0 ? 'ending-main' : 'ending-sub', t), 2.5 + i * 3.5)));
+
+    const keepsake = at(h('div', 'keepsake'), 10);
+    const grid = h('div', 'keepsake-grid');
+    for (const s of opts.stats) {
+      const cell = h('div', 'keepsake-cell');
+      cell.append(h('div', 'keepsake-value', s.value), h('div', 'keepsake-label', s.label));
+      grid.append(cell);
+    }
+    const d = new Date();
+    keepsake.append(
+      h('div', 'keepsake-name', ANIMALS[opts.animal].name),
+      grid,
+      h('div', 'keepsake-date', `${d.getFullYear()} · ${d.getMonth() + 1} · ${d.getDate()}`),
+    );
+
+    const again = at(h('button', 'pill again', '再活一次'), 13);
     again.addEventListener('click', opts.onAgain);
-    const hint = h('p', 'ending-hint', 'A / D 或移动鼠标，随便跑');
-    hint.style.animationDelay = '10s';
-    this.ending.append(lines, stats, again, hint);
+    const hint = at(h('p', 'ending-hint', 'A / D 或移动鼠标，随便跑'), 13);
+    this.ending.append(lines, keepsake, again, hint);
   }
 
   hideEnding() {
