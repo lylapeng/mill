@@ -46,7 +46,7 @@
 - 硬规则：zip 里只许 html/css/js/图片/woff(2)/json（**没有 .glb、.ttf、.txt**）；不许 fetch、内联脚本、`type="module"`、eval/Worker/WASM；JS 要能在 Chrome 61 跑（ES2017）；建议 zip ≤ 2 MB。
 - 做法：`npm run build:xhs` → `dist-xhs/` + `dist-xhs.zip`。入口 `src/xhs/main.ts`，用微信版的画布界面（`canvas-ui/`，竖屏已排好、不涉及 CSS 兼容）盖在一张页面画布上。模型在构建时转成 `models/*.js`（base64 写进 `window.__millFiles`）；字体用 WOFF2（`tools/xhs/fonts.mjs` 子集化，改文字后和微信的一起跑），OFL 授权全文由构建写进 `style.css` 的注释。存档用容器 Storage API（客户端 9.46+，启动时读进内存），否则 localStorage。
 - three.js r187 的渲染器直接用 `WeakRef` / `FinalizationRegistry`（Chrome 84+），`src/xhs/compat.ts` 给老 WebView 补了替身。构建时把残留的 `fetch(` 换成拒绝的桩，并扫描禁用写法，命中就构建失败。
-- 本机验证：headless Chromium 竖屏 + 模拟容器 CSP，封面、选动物、拉磨、存档都正常，去掉 WeakRef 也能跑。真机上验过（2026-10-31）；小工具已提交审核，等待中。微信版等备案。
+- 本机验证：headless Chromium 竖屏 + 模拟容器 CSP，封面、选动物、拉磨、存档都正常，去掉 WeakRef 也能跑。真机上验过；**小工具已发布（2026-10-31）**。微信版已提交审核。
 - 清晰度：3D 最高 2 倍像素比（受约 200 万像素预算限制），界面画布是叠在上面的独立 DOM 画布、按屏幕原生像素比（最高 3）画，所以字是锐的（小游戏只有一张画布，才需要把界面贴进 3D）。像素比取 `devicePixelRatio` 与容器 `getWindowInfo().pixelRatio` 的较大者。自动降档前 6 秒不计（编译着色器那几秒会被误判成卡）。第一版只有 1.5 倍、界面也跟着 1.5 倍，用户在小红书里看着"糊"。
 - 影子：用户在小红书真机上看到地上的影子有锯齿、跟着磨杆扫过时"飘"。原因推测是手机 GPU 对阴影的硬件过滤少，1024 的阴影贴图在低太阳（流霞景 4°）下每格在地上拉长到半米多。小红书版改成 2048 + `shadowRadius: 3`（`Quality.shadowRadius`，可选，网页和微信仍是默认 1）。本机 Mac GPU 上复现不出来，**还没在真机上确认改好了**；如果还有，把太阳最低仰角抬高（会改变黄昏的光感）或阴影相机跟随镜头。
 - `?debug` 时 `window.__mill` = App（截图用）。上架截图在 `~/Desktop/拉磨图标/小红书截图/`（1170×2532，用打包后的 dist-xhs 拍）。
