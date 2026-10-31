@@ -237,8 +237,11 @@ export function silhouettes(renderer: THREE.WebGLRenderer): Record<AnimalId, Mas
     const a = new Animal(kind);
     a.setMaterial(ink);
     a.play('Walk');
-    a.seek(0.35);
-    a.root.rotation.y = Math.PI / 2; // face right
+    // the donkey turns a little toward us, or its two long ears line up into one and it reads
+    // as a goat; a later frame of its walk keeps the head level
+    const pose = kind === 'donkey' ? { t: 0.6, turn: 0.35 } : { t: 0.35, turn: 0 };
+    a.seek(pose.t);
+    a.root.rotation.y = Math.PI / 2 - pose.turn; // face right
     scene.add(a.root);
     a.root.updateMatrixWorld(true);
     a.model.traverse((o) => {

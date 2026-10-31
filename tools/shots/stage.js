@@ -7,7 +7,7 @@ const meadow = (x, z) => Math.sin(x * 0.05) * Math.cos(z * 0.04) * 1.6 + Math.si
 window.stage = async (name) => {
   const M = window.__mill;
   const { THREE, Animal } = M;
-  const [shot, kind, variant] = name.split('-');
+  const [shot, kind, variant, palette] = name.split('-');
   document.querySelector('.ui').style.display = 'none';
 
   if (shot === 'top') {
@@ -45,12 +45,40 @@ window.stage = async (name) => {
       o.material = o.material.clone();
       o.material.emissive.copy(o.material.color).multiplyScalar(0.28);
     });
+    if (palette === 'pop' || palette === 'popdusk') {
+      // for a small icon: the donkey and the mill must not share a colour. A pale cream stone,
+      // a deep cool-grey donkey with a light belly, no flagstones, plain daylight (or dusk).
+      const paint = (root, map) => root.traverse((o) => {
+        if (!o.isMesh) return;
+        const mats = [].concat(o.material).map((m) => {
+          const hex = map[m.color.getHexString()];
+          if (!hex) return m;
+          const c = m.clone();
+          c.color.set(hex);
+          if (c.emissive) c.emissive.copy(c.color).multiplyScalar(0.22);
+          return c;
+        });
+        o.material = Array.isArray(o.material) ? mats : mats[0];
+      });
+      paint(yard.mill.group, { '9b978e': '#e2d2ae', '7d7a73': '#bfa983', '7b5a3e': '#6e2a1a' });
+      paint(an.model, { '6c6e6d': '#4c5058', 'a8a8a8': '#eeeeea', '323232': '#1d1c1f' });
+      yard.mill.tierGroups[1].visible = false;
+      // bloom would blur the pale stone into the grass
+      Object.defineProperty(yard, 'bloom', { get: () => 0.04 });
+      if (palette === 'pop') {
+        yard.scene.traverse((o) => {
+          if (o.isDirectionalLight) { o.color.set('#fff4e2'); o.intensity = 2.7; }
+          if (o.isHemisphereLight) { o.color.set('#d9ecff'); o.groundColor?.set('#6d8a3c'); o.intensity = 1.1; }
+        });
+      }
+    }
     const cam = yard.camera;
     // high and a little in front: the ring stays round-ish, the animal shows its side and ears
     cam.up.set(0, 1, 0);
     const tilt = THREE.MathUtils.degToRad(17);
     const look = new THREE.Vector3(ax * 0.5, 1.3, az * 0.3);
-    cam.fov = 31;
+    // the recoloured icon shots frame tighter, so the two shapes fill a small icon
+    cam.fov = palette ? 25 : 31;
     cam.position.set(look.x, 13 * Math.sin(tilt) + look.y, look.z + 13 * Math.cos(tilt));
     cam.lookAt(look);
     cam.updateProjectionMatrix();

@@ -4,6 +4,8 @@
 export interface Quality {
   maxPixelRatio: number;
   shadowMapSize: number;
+  /** PCF sampling radius in shadow-map texels; softens the stair-steps (three's default is 1) */
+  shadowRadius?: number;
   /** grass blades on the grassland at the end */
   meadowGrass: number;
 }

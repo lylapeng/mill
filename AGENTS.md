@@ -7,6 +7,7 @@
 - `v1`（第一个可玩版本）、`v2`（界面精修 + Quaternius 模型 + 封面轮廓）是快照，**不要再往上提交**。用户说"保存这一版"= 冻结当前分支，后续开下一个 `vN`。
 - `v3`：网页版的工作分支。`main` = 线上版本（与 `v3` 同步）。
 - `minigame`：小程序/小游戏版，从 `v3` 分出（见下文「小游戏版」）。网页版的修复要同步过来（`git merge v3`）。这个分支重构了共用代码（`platform.ts`、`app.ts`、`ui-api.ts`，网页版也在用），合并 v3 时注意冲突；反过来网页版也可以直接从这个分支上线。
+- `xhs`：小红书版，从 `minigame` 分出（2026-10-31）。微信真机跑通的状态打了 tag `minigame-wx-ok`。**小红书专属的东西放新文件 / 新入口，不改 `src/minigame/` 和 `minigame/` 里的微信代码**；要动共用代码时，同时跑 `npm run build:minigame` 确认微信版不受影响。
 - 上线：GitHub Pages，https://lylapeng.github.io/mill/ （仓库 lylapeng/mill，公开）。`.github/workflows/deploy.yml` 构建 `main`。
   **推送 `main` 目前不会自动触发部署**（原因未查明，GitHub 状态正常），发布要手动：`gh workflow run deploy.yml -R lylapeng/mill --ref main`。
 - Cloudflare Pages（国内访问稍快）：待用户在 Cloudflare 后台连接 GitHub 仓库（生产分支 `main`，构建 `npm run build`，输出 `dist`）。
@@ -35,9 +36,21 @@
 - 测试阶段，小游戏出错会把错误直接显示在屏幕上（`minigame/main.ts` 的 `report`，含字体没生效、声音没启动）；上线前要关掉或改成只记日志。
 - 真机：iPhone 16 已跑通（普通模式下：画面、字体、声音、触屏都正常；高性能模式见上）。待办：完整玩一局看后期卡不卡、发不发烫；安卓试一台；性能不够再降（像素比 1.5 → 1.25、关 bloom）；备案截图按竖屏界面重拍。
 - 名称建议：「拉磨」；被占用则「拉磨与草原」，简称「拉磨」。介绍文案：一圈，又一圈。选一头牛、马或驴，绕着磨盘拉磨，磨出的面粉用来升级磨坊和风景。地平线上偶尔浮现草原——奔向它，也许能挣脱绳子。
+- 头像：用户反馈旧的驴拉磨图色调不鲜明、驴和磨颜色分不开。新配色候选在 `~/Desktop/拉磨图标/新配色/`（`stage.js` 的 `top-donkey-7-pop`：奶油色石磨、深灰驴、去掉石板、白天光，推荐这张）。
 - 头像：候选在 `~/Desktop/拉磨图标/`（用 `tools/shots/icon.mjs` 在游戏里摆拍渲染）。用户喜欢的方向：驴头特写（正面夕阳光，`head-donkey-front`）、驴拉磨构图（`mill-donkey-7oclock` 等）。还没最终定。
 - 备案截图与各场景描述文案在 `~/Desktop/拉磨图标/备案截图/`。**这些是网页版横屏截图**；小游戏版要按竖屏界面重拍。
-- 小红书：只查到"小红书小程序"资料（需主体认证 + 工信部备案），没找到"小游戏"公开接入文档，待用户在后台确认是否支持 WebGL 小游戏。
+## 小红书版（`xhs` 分支）
+
+- 走的是「小工具」（创作后台 Builder Hub → 小工具，**个人可发**），不是需要企业认证的「小程序」。本质是离线 H5 zip，挂在笔记下面。
+- 规范来自官方 Skill `minitool-zip-builder`（口令在上传页「第一步」，版本会更新，**每次用上传页当前的口令**）。Skill 装在 `.claude/skills/minitool-zip-builder/`，不进 git（小红书的文档）。在线能力清单：https://miniapp-sandbox.xiaohongshu.com/minitool/doc
+- 硬规则：zip 里只许 html/css/js/图片/woff(2)/json（**没有 .glb、.ttf、.txt**）；不许 fetch、内联脚本、`type="module"`、eval/Worker/WASM；JS 要能在 Chrome 61 跑（ES2017）；建议 zip ≤ 2 MB。
+- 做法：`npm run build:xhs` → `dist-xhs/` + `dist-xhs.zip`。入口 `src/xhs/main.ts`，用微信版的画布界面（`canvas-ui/`，竖屏已排好、不涉及 CSS 兼容）盖在一张页面画布上。模型在构建时转成 `models/*.js`（base64 写进 `window.__millFiles`）；字体用 WOFF2（`tools/xhs/fonts.mjs` 子集化，改文字后和微信的一起跑），OFL 授权全文由构建写进 `style.css` 的注释。存档用容器 Storage API（客户端 9.46+，启动时读进内存），否则 localStorage。
+- three.js r187 的渲染器直接用 `WeakRef` / `FinalizationRegistry`（Chrome 84+），`src/xhs/compat.ts` 给老 WebView 补了替身。构建时把残留的 `fetch(` 换成拒绝的桩，并扫描禁用写法，命中就构建失败。
+- 本机验证：headless Chromium 竖屏 + 模拟容器 CSP，封面、选动物、拉磨、存档都正常，去掉 WeakRef 也能跑。真机上验过（2026-10-31）；小工具已提交审核，等待中。微信版等备案。
+- 清晰度：3D 最高 2 倍像素比（受约 200 万像素预算限制），界面画布是叠在上面的独立 DOM 画布、按屏幕原生像素比（最高 3）画，所以字是锐的（小游戏只有一张画布，才需要把界面贴进 3D）。像素比取 `devicePixelRatio` 与容器 `getWindowInfo().pixelRatio` 的较大者。自动降档前 6 秒不计（编译着色器那几秒会被误判成卡）。第一版只有 1.5 倍、界面也跟着 1.5 倍，用户在小红书里看着"糊"。
+- 影子：用户在小红书真机上看到地上的影子有锯齿、跟着磨杆扫过时"飘"。原因推测是手机 GPU 对阴影的硬件过滤少，1024 的阴影贴图在低太阳（流霞景 4°）下每格在地上拉长到半米多。小红书版改成 2048 + `shadowRadius: 3`（`Quality.shadowRadius`，可选，网页和微信仍是默认 1）。本机 Mac GPU 上复现不出来，**还没在真机上确认改好了**；如果还有，把太阳最低仰角抬高（会改变黄昏的光感）或阴影相机跟随镜头。
+- `?debug` 时 `window.__mill` = App（截图用）。上架截图在 `~/Desktop/拉磨图标/小红书截图/`（1170×2532，用打包后的 dist-xhs 拍）。
+- 可以以后加的容器能力：`postNote`（把画面截图发成笔记）、排行榜/云存储（内测，会让游戏联网）。
 
 ## 图标 / 摆拍的经验
 
@@ -84,7 +97,7 @@ This file is the project's memory. Read it before working; update it when a deci
 - 第一人称的身体（`Rider`）跟着相机位置，但有自己的朝向：转头看磨时只是眼睛在转，身体只跟一点（`clamp(yaw, -0.5, 0.45)`）。相机高度由模型算出（`Rider.eyeHeight`），保证蹄子踩在地上；头骨（`Head` 骨骼）在相机坐标里的位置见 `RIDE`。身体挂在以头为支点的 `sway` 组上，走路时背部左右摆、头微点，节奏取 `walkPhase`（之前身体死贴镜头，用户觉得僵）。牛的镜头要比马驴更高（`RIDE.ox.y`），否则背上的隆起会占满画面下方。
 - 耳朵抽动是在动画之上叠加的骨骼旋转（`Ear1L/R`，GLTFLoader 会去掉名字里的点）；每帧先撤销上一帧的叠加量，否则动画不碰耳朵时会累积。牛模型没有耳朵骨骼。
 - "倔"只属于驴：只有驴显示这一项，对应 `freedomBonus` +0.4%（每次奔向草原的成功率）。牛和马没有这个属性。
-- 封面：三个动物的侧面轮廓由模型实时渲染成 PNG（`silhouettes()`，同一比例尺，驴比马小），用 CSS mask 着色；点选后才显示描述、数值和"开始拉磨"。
+- 封面：三个动物的侧面轮廓（驴往镜头转约 20°，否则两只耳朵叠成一只、像山羊；用户说牛和马的轮廓可以），由模型实时渲染成 PNG（`silhouettes()`，同一比例尺，驴比马小），用 CSS mask 着色；点选后才显示描述、数值和"开始拉磨"。
 - 蜃楼里的马群也是模型，蜃楼着色器带骨骼蒙皮（`skinning_pars_vertex` 等）。
 - 铜轮磨的传动必须连得上：大齿轮在立轴上 → 小齿轮压在大齿轮边上 → 传动轴挂在横梁下穿过立柱 → 皮带轮；蒸汽磨的锅炉在那根立柱后面，飞轮用皮带带动皮带轮。不要再有悬空的零件。
 - 界面：字号 / 墨色层级 / 圆角都在 `style.css` 顶部的变量里，新样式只用这些变量。HUD 角落有一层 `.scrim` 暗角，保证亮天空上字也看得清。换档用 `ui.tier()` 出大标题，不用普通 toast。
@@ -115,7 +128,9 @@ src/
     mirage.ts    蜃楼（含倒影），清晰度随失败次数提高
     models.ts    加载动物模型；Animal（单个实例 + 动画）、Rider（第一人称身体）、封面轮廓
     particles.ts 尘 / 花粉 / 萤火、花瓣
+  xhs/           小红书小工具入口 main.ts、platform.ts（存档、包内文件）、compat.ts
 minigame/        小游戏包里的静态文件（game.json、project.config.json、字体）
+xhs/             小红书包里的静态文件（index.html、style.css、WOFF2 字体）
 tools/minigame/  fonts.mjs（字体子集化）、sim.html（浏览器里模拟微信环境）
 ```
 
