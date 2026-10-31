@@ -2,7 +2,7 @@
 
 第一人称 3D 网页小游戏：选一头牛 / 马 / 驴，绕着磨盘转圈拉磨。磨出的面粉用来升级磨（转得更快、更先进）和景（背景越来越美）。地平线上偶尔浮现草原蜃楼，奔向它有很小的概率挣脱绳子，走进真正的草原，游戏结束。
 
-版本：`v1` 分支是第一个可玩版本的快照，**不要再往上提交**；之后的工作在 `v2` 上。
+版本：`v1`（第一个可玩版本）、`v2`（界面精修 + Quaternius 模型 + 封面轮廓）都是快照，**不要再往上提交**；之后的工作在 `v3` 上。
 
 This file is the project's memory. Read it before working; update it when a decision is made or something non-obvious is learned. Keep it short and current — delete what is no longer true.
 
