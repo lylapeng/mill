@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { AnimalId } from './config';
 import type { Input } from './input';
-import { buildFigure, buildHead, type HeadRig } from './world/animals';
+import { Animal, Rider, type Breed } from './world/models';
 import { makePalette, samplePalette } from './world/palette';
 import { Sky } from './world/sky';
 import { damp, meadowHeight, meadowHeightGLSL, mulberry32 } from './util';
@@ -91,11 +91,11 @@ export class Freedom {
     uSun: { value: new THREE.Color('#ffd08a') },
   };
   private ground: THREE.Mesh;
-  private head: HeadRig | null = null;
+  private rider: Rider | null = null;
   private heading = 0;
   private speed = 0;
   private phase = 0;
-  private herd: { obj: THREE.Group; legs: THREE.Mesh[]; phase: number; grazing: boolean }[] = [];
+  private herd: { animal: Animal; grazing: boolean }[] = [];
   private flowers: THREE.InstancedMesh;
   private t = 0;
   readonly bloom = 0.45;
@@ -179,20 +179,23 @@ export class Freedom {
 
   /** Begin the ending as `animal`; previously freed animals graze nearby. */
   start(animal: AnimalId, freed: AnimalId[]) {
-    if (this.head) this.camera.remove(this.head.group);
-    this.head = buildHead(animal);
-    this.camera.add(this.head.group);
-    for (const h of this.herd) this.scene.remove(h.obj);
+    this.rider?.dispose();
+    this.rider = new Rider(animal);
+    this.scene.add(this.rider.group);
+    for (const h of this.herd) this.scene.remove(h.animal.root);
     this.herd = [];
     const rand = mulberry32(freed.length + 1);
-    const company: AnimalId[] = [...freed.slice(-12), 'horse', 'horse', 'donkey', 'ox'];
+    const company: Breed[] = [...freed.slice(-12), 'horse', 'whiteHorse', 'donkey', 'ox'];
     company.forEach((kind) => {
-      const fig = buildFigure(kind);
+      const a = new Animal(kind);
       const x = (rand() - 0.5) * 70, z = 25 + rand() * 160;
-      fig.group.position.set(x, meadowHeight(x, z), z);
-      fig.group.rotation.y = rand() * Math.PI * 2;
-      this.scene.add(fig.group);
-      this.herd.push({ obj: fig.group, legs: fig.legs, phase: rand() * 6, grazing: rand() < 0.6 });
+      a.root.position.set(x, meadowHeight(x, z), z);
+      a.root.rotation.y = rand() * Math.PI * 2;
+      const grazing = rand() < 0.6;
+      a.play(grazing ? 'Eating' : 'Gallop', 0);
+      a.update(rand() * 3); // out of step with each other
+      this.scene.add(a.root);
+      this.herd.push({ animal: a, grazing });
     });
     this.heading = 0;
     this.speed = 7;
@@ -210,7 +213,7 @@ export class Freedom {
     const cam = this.camera;
     const dir = new THREE.Vector3(Math.sin(this.heading), 0, Math.cos(this.heading));
     cam.position.addScaledVector(dir, this.speed * dt);
-    cam.position.y = meadowHeight(cam.position.x, cam.position.z) + 2.0 + Math.abs(Math.sin(this.phase)) * 0.09;
+    cam.position.y = meadowHeight(cam.position.x, cam.position.z) + (this.rider?.eyeHeight ?? 2) + Math.abs(Math.sin(this.phase)) * 0.09;
     const look = cam.position.clone().add(dir).add(new THREE.Vector3(0, 0.02, 0));
     cam.up.set(Math.sin(this.phase * 0.5) * 0.015 - this.input.steer * 0.04, 1, 0);
     cam.lookAt(look);
@@ -218,20 +221,19 @@ export class Freedom {
     this.uniforms.uCenter.value.set(cam.position.x, 0, cam.position.z);
     this.sky.update(time, cam.position);
 
-    if (this.head) {
-      this.head.skull.rotation.x = Math.sin(this.phase * 2) * 0.06;
-      this.head.ears.forEach((e, i) => {
-        e.rotation.x = e.userData.rest + 0.25 + Math.sin(this.phase * 2 + i) * 0.08;
-      });
+    if (this.rider) {
+      this.rider.place(cam.position, Math.atan2(-dir.x, -dir.z));
+      this.rider.update(dt, 1, true);
     }
     for (const h of this.herd) {
-      h.phase += dt * (h.grazing ? 0.6 : 3);
+      const a = h.animal;
       if (!h.grazing) {
-        h.obj.translateX(dt * 2.4);
-        h.obj.rotation.y += dt * 0.05;
+        // the clip gallops in place; the model faces +z
+        a.root.translateZ(dt * 4.2);
+        a.root.rotation.y += dt * 0.05;
       }
-      h.obj.position.y = meadowHeight(h.obj.position.x, h.obj.position.z) + (h.grazing ? 0 : Math.abs(Math.sin(h.phase)) * 0.1);
-      h.legs.forEach((l, i) => (l.rotation.z = h.grazing ? 0 : Math.sin(h.phase + (i % 2 ? Math.PI : 0)) * 0.5));
+      a.root.position.y = meadowHeight(a.root.position.x, a.root.position.z);
+      a.update(dt);
     }
   }
 }

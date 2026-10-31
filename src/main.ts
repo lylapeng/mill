@@ -12,7 +12,15 @@ import { loadMeta, loadRun, newRun, saveMeta, saveRun, type RunState } from './s
 import { Ui, formatJin } from './ui';
 import { tierOf } from './config';
 import { Yard } from './world/yard';
-import { hairClock } from './world/animals';
+import { loadModels, silhouettes } from './world/models';
+
+// the animals are the only files to fetch; wait for them before building the world
+const loading = document.createElement('div');
+loading.className = 'loading';
+loading.textContent = '一圈，又一圈';
+document.body.append(loading);
+await loadModels();
+const portraits = silhouettes();
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -66,6 +74,7 @@ function showTitle() {
   titleRadius = 8 + tierOf(run?.millLevel ?? 1) * 1.1;
   ui.showHud(false);
   ui.showTitle({
+    portraits,
     current: run?.animal ?? null,
     freed: meta.freed,
     onPick: (a) => startRun(newRun(a)),
@@ -151,7 +160,6 @@ renderer.setAnimationLoop((now) => {
   timer.update(now);
   const dt = Math.min(0.05, timer.getDelta());
   time += dt;
-  hairClock.value = time;
 
   if (mode === 'freedom' && freedom) {
     freedom.update(dt, time);
@@ -176,6 +184,8 @@ renderer.setAnimationLoop((now) => {
 });
 
 showTitle();
+loading.classList.add('done');
+setTimeout(() => loading.remove(), 1200);
 
 // Dev-only shortcuts for checking visuals: ?scene=13&mill=17&flour=1e4&fails=10
 if (import.meta.env.DEV) {

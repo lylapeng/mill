@@ -7,7 +7,7 @@ import type { Sound } from './audio';
 import type { Input } from './input';
 import { saveRun, type RunState } from './save';
 import type { Ui, UpgradeInfo } from './ui';
-import { buildHead, type HeadRig } from './world/animals';
+import { Rider } from './world/models';
 import type { Yard } from './world/yard';
 import { clamp, damp, smoothstep } from './util';
 
@@ -28,8 +28,6 @@ const DASH_OUT = 1.25;
 const DASH_BACK = 3.3;
 const DASH_FREE = 2.8;
 const ROPE = 2.6;
-/** the camera sits a little above and behind the head, so you see your own ears */
-const VIEW_LIFT = 0.35;
 /** resting head turn: the edge of the mill is just in view */
 const HEAD_YAW = 0.3;
 /** looking straight at the mill */
@@ -37,7 +35,7 @@ const MILL_YAW = 1.3;
 
 export class MillGame {
   readonly animal: AnimalDef;
-  private head: HeadRig;
+  private rider: Rider;
   private speed = 0;
   private combo = 0;
   private lastSide: 'L' | 'R' | null = null;
@@ -46,8 +44,6 @@ export class MillGame {
   private walkPhase = 0;
   private bob = 0;
   private shake = 0;
-  private earTimer = 2;
-  private earTwitch: number[] = [];
   /** head turn toward the mill (radians, positive = inward) */
   private yaw = HEAD_YAW;
   private glance = 0;
@@ -74,9 +70,8 @@ export class MillGame {
     private onFreedom: (run: RunState) => void,
   ) {
     this.animal = ANIMALS[run.animal];
-    this.head = buildHead(run.animal);
-    this.earTwitch = this.head.ears.map(() => 0);
-    yard.camera.add(this.head.group);
+    this.rider = new Rider(run.animal);
+    yard.scene.add(this.rider.group);
     yard.setMillLevel(run.millLevel, true);
     yard.setSceneLevel(run.sceneLevel, true);
     if (run.sceneLevel >= MIRAGE.unlockSceneLevel) this.unlockMirage();
@@ -86,7 +81,7 @@ export class MillGame {
   }
 
   dispose() {
-    this.yard.camera.remove(this.head.group);
+    this.rider.dispose();
     this.yard.mirage.opacity = 0;
     this.ui.prompt(false);
     this.ui.mirageHint(0, 0);
@@ -200,7 +195,7 @@ export class MillGame {
     if (this.done) return;
 
     this.updateMirage(dt);
-    this.updateEars(dt);
+    this.rider.update(dt, clamp(this.speed / this.animal.maxSpeed), this.dash !== null);
     this.yard.mill.update(dt, time, this.run.angle);
     this.sound.ambience(clamp(this.speed / this.animal.maxSpeed), Math.min(4, (this.run.sceneLevel - 1) / 4), dt);
 
@@ -251,7 +246,7 @@ export class MillGame {
     this.shake = damp(this.shake, 0, 5, dt);
     cam.position.set(
       Math.cos(a) * WALK_RADIUS,
-      this.animal.eyeHeight + VIEW_LIFT + bobY,
+      this.rider.eyeHeight + bobY,
       Math.sin(a) * WALK_RADIUS,
     );
     // forward along the circle; the mouse (or a fresh upgrade) turns the head toward the mill
@@ -268,28 +263,13 @@ export class MillGame {
     this.tmpLook.add(cam.position);
     cam.up.set(Math.sin(this.walkPhase) * 0.012 * moving + (Math.random() - 0.5) * this.shake * 0.02, 1, 0);
     cam.lookAt(this.tmpLook);
+    // the body follows the head only part of the way; beyond that it's just the eyes turning
+    const body = clamp(this.yaw, -0.5, 0.45);
+    this.rider.place(cam.position, Math.atan2(Math.sin(a) * Math.cos(body) + Math.cos(a) * Math.sin(body), -Math.cos(a) * Math.cos(body) + Math.sin(a) * Math.sin(body)));
     if (Math.abs(cam.fov - 70) > 0.01) {
       cam.fov = damp(cam.fov, 70, 3, dt);
       cam.updateProjectionMatrix();
     }
-  }
-
-  private updateEars(dt: number) {
-    this.earTimer -= dt;
-    if (this.earTimer <= 0) {
-      this.earTimer = 1.5 + Math.random() * 4;
-      const i = Math.floor(Math.random() * this.head.ears.length);
-      this.earTwitch[i] = 1;
-    }
-    this.head.ears.forEach((e, i) => {
-      this.earTwitch[i] = Math.max(0, this.earTwitch[i] - dt * 3);
-      const k = this.earTwitch[i];
-      e.rotation.x = e.userData.rest + Math.sin(k * Math.PI) * 0.5 + Math.sin(this.walkPhase + i) * 0.03;
-    });
-    // the head nods with each step
-    const moving = clamp(this.speed / 0.6);
-    this.head.skull.rotation.x = -this.bob * 0.08 + Math.sin(this.walkPhase * 2) * 0.035 * moving;
-    this.head.skull.position.y = -0.4 - this.bob * 0.02;
   }
 
   private updateMirage(dt: number) {
@@ -343,7 +323,7 @@ export class MillGame {
     const cam = this.yard.camera;
     const m = this.yard.mirage;
     const a = this.run.angle;
-    const pathPos = this.tmpPos.set(Math.cos(a) * WALK_RADIUS, this.animal.eyeHeight + VIEW_LIFT, Math.sin(a) * WALK_RADIUS);
+    const pathPos = this.tmpPos.set(Math.cos(a) * WALK_RADIUS, this.rider.eyeHeight, Math.sin(a) * WALK_RADIUS);
     let out: number;
     let lookMirage: number;
     let fov: number;
@@ -390,6 +370,7 @@ export class MillGame {
     cam.position.y += Math.sin(this.walkPhase * 2) * 0.05;
     cam.up.set((Math.random() - 0.5) * this.shake * 0.04, 1, 0);
     this.shake = damp(this.shake, 0, 4, dt);
+    this.rider.place(cam.position, Math.atan2(-look.x, -look.z));
     cam.lookAt(look.add(cam.position));
     cam.fov = fov;
     cam.updateProjectionMatrix();

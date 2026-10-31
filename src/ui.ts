@@ -172,6 +172,8 @@ export class Ui {
   // ── title ────────────────────────────────────────────────────────────
 
   showTitle(opts: {
+    /** side-on silhouettes (image URLs) */
+    portraits: Record<AnimalId, string>;
     current: AnimalId | null;
     freed: AnimalId[];
     onPick: (a: AnimalId) => void;
@@ -189,19 +191,35 @@ export class Ui {
       cont.addEventListener('click', opts.onContinue);
       bottom.append(cont, h('p', 'or', '或者，换一头重新开始'));
     }
-    const row = h('div', 'animals');
+
+    // three silhouettes; picking one reveals what it's like and a button to begin
+    const herd = h('div', 'herd');
+    const detail = h('div', 'detail');
+    const portraits: HTMLButtonElement[] = [];
+    const pick = (id: AnimalId, el: HTMLButtonElement) => {
+      for (const p of portraits) p.classList.toggle('picked', p === el);
+      herd.classList.add('choosing');
+      const a = ANIMALS[id];
+      const start = h('button', 'pill start', '开始拉磨');
+      start.addEventListener('click', () => opts.onPick(id));
+      detail.replaceChildren(h('p', 'detail-blurb', a.blurb), stats(a.stats), start);
+      detail.classList.remove('in');
+      void detail.offsetWidth;
+      detail.classList.add('in');
+    };
     for (const a of Object.values(ANIMALS)) {
-      const card = h('button', 'animal');
-      card.append(h('div', 'animal-name', a.name), h('div', 'animal-blurb', a.blurb), stats(a.stats));
-      card.addEventListener('click', () => opts.onPick(a.id));
-      row.append(card);
+      const el = h('button', 'portrait');
+      const sil = h('span', 'sil');
+      sil.style.setProperty('--img', `url(${opts.portraits[a.id]})`);
+      const shade = h('span', 'sil-shade');
+      shade.append(sil);
+      el.append(shade, h('span', 'portrait-name', a.name));
+      if (opts.freed.includes(a.id)) el.append(h('span', 'portrait-free', '曾走进草原'));
+      el.addEventListener('click', () => pick(a.id, el));
+      portraits.push(el);
+      herd.append(el);
     }
-    bottom.append(row);
-    if (opts.freed.length) {
-      const names = opts.freed.map((id) => ANIMALS[id].name).join('　');
-      bottom.append(h('p', 'freed', `已经走进草原的　${names}`));
-    }
-    bottom.append(h('p', 'controls', TEXT.controls));
+    bottom.append(herd, detail, h('p', 'controls', TEXT.controls));
 
     this.title.append(top, bottom);
   }

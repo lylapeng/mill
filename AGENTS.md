@@ -10,7 +10,8 @@ This file is the project's memory. Read it before working; update it when a deci
 
 - 纯静态前端，无服务器、无账号、无排行榜、无联机、无内购。
 - 不引入物理引擎、不引入 UI 框架（React 等）。
-- 不放第三方美术 / 音频素材：模型由几何体程序化生成，声音由 Web Audio 合成。若将来引入素材，只用 CC0（Kenney、Quaternius），并在此记录来源。
+- 第三方素材只用 CC0，并在此记录来源。场景、磨、树由几何体程序化生成；声音由 Web Audio 合成。
+- **素材来源**：`public/models/*.glb` 是 Quaternius「Ultimate Animated Animal Pack」（CC0，经 poly.pizza 下载）：horse、horse-white、donkey、ox（原为 Bull，代码里改成黄牛色）。只保留了 Idle / Walk / Gallop / Eating 四套动画（用 `@gltf-transform` 裁剪、resample、prune，工具放在临时目录，不进项目）。
 - 桌面端优先；手机端只保证"点左右半屏迈步"能玩，布局有基础适配。
 
 ## 调性
@@ -34,8 +35,11 @@ This file is the project's memory. Read it before working; update it when a deci
 - 磨的各档只加不减，院子保留历史；新档"长出来"（缩放动画）。
 - 蜃楼浮在地平线上方并带倒影；成功与失败在前 1.25 秒完全一样，悬念到绳子绷紧那一刻才揭晓。
 - 自由后：草原里会出现此前获得自由的动物（meta 存档）。
-- **马头保留 v1 的比例**（圆后脑 + 斜向下的脸 + 小耳朵靠拢）；试过窄长的"写实"比例，用户反馈看不出是马，否掉了。驴、牛用 `skullGeometry` 的单体雕刻头（`SHAPE` 控制比例）。驴耳不要太大（现 0.26）。
-- 鬃毛 / 额毛 / 尾巴是实例化的发丝（`hair()`，一根锥形带子，根部深、尖端浅，随 `hairClock` 摆动）。骑手视角下脖子大多被头挡住，马鬃只能向右侧垂下才看得见。
+- **动物用 Quaternius 模型**。试过程序化头部 + 发丝鬃毛 / 渐变色块鬃毛，用户更喜欢 Quaternius 的样子（骑手视角下能看到耳朵和顺着脖子的鬃毛）。
+- 第一人称的身体（`Rider`）跟着相机位置，但有自己的朝向：转头看磨时只是眼睛在转，身体只跟一点（`clamp(yaw, -0.5, 0.45)`）。相机高度由模型算出（`Rider.eyeHeight`），保证蹄子踩在地上；头骨（`Head` 骨骼）在相机坐标里的位置见 `RIDE`。
+- 耳朵抽动是在动画之上叠加的骨骼旋转（`Ear1L/R`，GLTFLoader 会去掉名字里的点）；每帧先撤销上一帧的叠加量，否则动画不碰耳朵时会累积。牛模型没有耳朵骨骼。
+- 封面：三个动物的侧面轮廓由模型实时渲染成 PNG（`silhouettes()`，同一比例尺，驴比马小），用 CSS mask 着色；点选后才显示描述、数值和"开始拉磨"。
+- 蜃楼里的马群也是模型，蜃楼着色器带骨骼蒙皮（`skinning_pars_vertex` 等）。
 - 铜轮磨的传动必须连得上：大齿轮在立轴上 → 小齿轮压在大齿轮边上 → 传动轴挂在横梁下穿过立柱 → 皮带轮；蒸汽磨的锅炉在那根立柱后面，飞轮用皮带带动皮带轮。不要再有悬空的零件。
 - 界面：字号 / 墨色层级 / 圆角都在 `style.css` 顶部的变量里，新样式只用这些变量。HUD 角落有一层 `.scrim` 暗角，保证亮天空上字也看得清。换档用 `ui.tier()` 出大标题，不用普通 toast。
 
@@ -58,7 +62,7 @@ src/
     land.ts      地面、远山、树、草、花、篱笆、房子（按等级"长出来"）
     mill.ts      5 档磨（石磨→木架磨→铜轮磨→蒸汽磨→星辉磨），只加不减
     mirage.ts    蜃楼（含倒影），清晰度随失败次数提高
-    animals.ts   第一人称头颈、远景整只动物、发丝（鬃毛 / 尾巴）
+    models.ts    加载动物模型；Animal（单个实例 + 动画）、Rider（第一人称身体）、封面轮廓
     particles.ts 尘 / 花粉 / 萤火、花瓣
 ```
 
@@ -81,6 +85,7 @@ src/
   - 立刻出蜃楼：`__mill.game.mirageTimer = 0`；摆到正前方：`__mill.yard.mirage.place(__mill.game.run.angle + Math.PI/2 + 0.3, 105)`
   - 强制冲刺：`__mill.game.promptShown = true; __mill.game.dashIntent()`（`run.mirageFails = 29` 必成功）
   - 模拟迈步：对 `window` 派发 `KeyboardEvent('keydown', { code: 'KeyA' / 'KeyD' })`
+- 预览外部模型：在临时目录起一个带 CORS 的静态服务器，页面里 `fetch` GLTFLoader 的源码找出 vite 预打包的 three 地址，再 `import(location.origin + 地址)`，这样和游戏共用同一个 three 实例。
 - 截图脚本可以注入一段 JS 再截图（用来触发升级、蜃楼、冲刺），见临时目录里的 `shot.mjs` 写法：`name=?query@等待毫秒#脚本`。
 - 截图验证画面：用 Playwright + Chromium headless shell（`--use-angle=metal`）打开 dev server 等 3 秒再截。
   `npx playwright install` 在本机会卡住，直接从 cdn.playwright.dev 下载 headless shell 的 zip 并用 `executablePath` 更可靠。
@@ -91,8 +96,8 @@ src/
 
 - 手机端：HUD 布局更紧凑、触屏提示文案。
 - 已获自由的动物可以再做成"图鉴"。
-- 动物的写实程度受限于程序化几何；若要真正写实，需要 CC0 模型（目前没找到合适的写实牛马驴）。
-- 蜃楼里奔跑的小动物剪影很粗糙，可以重做。
+- "倔"目前只有驴有实际效果（`freedomBonus` +0.4%），马的 2 颗点没有作用，待定怎么统一。
+- 封面在有存档时，动物轮廓会挡住磨。
 - 自由草原：可以加天黑、星空、和同伴并肩跑等后续。
 - 首次游玩引导：现在只有一行操作说明。
 - 性能：低端机可降 shadowMap 尺寸、关 bloom。

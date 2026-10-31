@@ -7,7 +7,6 @@ export interface AnimalDef {
   id: AnimalId;
   name: string;
   blurb: string;
-  eyeHeight: number;
   /** speed gained per step (m/s) */
   stepPower: number;
   /** exponential drag per second */
@@ -25,7 +24,6 @@ export const ANIMALS: Record<AnimalId, AnimalDef> = {
     id: 'ox',
     name: '牛',
     blurb: '力气大，步子慢。每一圈都很实在。',
-    eyeHeight: 1.45,
     stepPower: 0.26,
     drag: 0.62,
     maxSpeed: 1.4,
@@ -37,7 +35,6 @@ export const ANIMALS: Record<AnimalId, AnimalDef> = {
     id: 'horse',
     name: '马',
     blurb: '跑得快，也停得快。要一直催着自己。',
-    eyeHeight: 1.75,
     stepPower: 0.9,
     drag: 1.6,
     maxSpeed: 2.2,
@@ -49,7 +46,6 @@ export const ANIMALS: Record<AnimalId, AnimalDef> = {
     id: 'donkey',
     name: '驴',
     blurb: '最倔的一个。据说，也最想走。',
-    eyeHeight: 1.35,
     stepPower: 0.5,
     drag: 1.0,
     maxSpeed: 1.7,

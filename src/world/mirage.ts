@@ -1,25 +1,31 @@
 import * as THREE from 'three';
 import { mulberry32, yardHeight } from '../util';
-import { buildFigure } from './animals';
-import type { AnimalId } from '../config';
+import { Animal, type Breed } from './models';
 
 // A grassland floating above the horizon, with its upside-down reflection
 // below — the way real desert mirages look. It shimmers less every time you
 // fail to reach it (uClarity), which is how the pity system is felt, not read.
 
 const vert = /* glsl */ `
+#include <common>
+#include <skinning_pars_vertex>
 uniform float uTime;
 uniform float uClarity;
+uniform float uFigure;
 varying float vY;
 varying float vX;
 void main() {
-  vec4 world = modelMatrix * vec4(position, 1.0);
+  vec3 transformed = position;
+  #include <skinbase_vertex>
+  #include <skinning_vertex>
+  vec4 world = modelMatrix * vec4(transformed, 1.0);
   float wob = 1.0 - uClarity * 0.75;
   world.x += sin(world.y * 1.4 + uTime * 2.3) * 0.35 * wob + sin(world.y * 4.1 - uTime * 3.7) * 0.12 * wob;
   world.z += cos(world.y * 1.1 + uTime * 1.9) * 0.35 * wob;
   world.y += sin(world.x * 0.35 + uTime * 1.6) * 0.18 * wob;
-  vY = position.y;
-  vX = position.x;
+  // the hills fade by their own coordinates; the running animals never fade at the edges
+  vY = uFigure > 0.5 ? 2.0 : position.y;
+  vX = uFigure > 0.5 ? 0.0 : position.x;
   gl_Position = projectionMatrix * viewMatrix * world;
 }`;
 
@@ -55,7 +61,7 @@ export class Mirage {
     uClarity: { value: 0 },
     uHaze: { value: new THREE.Color() },
   };
-  private herd: { obj: THREE.Group; legs: THREE.Mesh[]; phase: number; speed: number }[] = [];
+  private herd: { animal: Animal; speed: number }[] = [];
   /** world-space direction (unit, horizontal) from the yard toward the mirage */
   readonly direction = new THREE.Vector3(1, 0, 0);
 
@@ -99,25 +105,26 @@ export class Mirage {
     }
 
     // free animals running along the near ridge
-    const kinds: AnimalId[] = ['horse', 'horse', 'donkey', 'ox', 'horse'];
+    const kinds: Breed[] = ['horse', 'whiteHorse', 'donkey', 'ox', 'horse'];
+    const silhouette = this.material('#5b7a4a', 0, 1);
     kinds.forEach((kind, i) => {
-      const fig = buildFigure(kind);
-      fig.group.traverse((o) => {
-        // hair strands are instanced; the mirage shader draws silhouettes only
-        if (o instanceof THREE.InstancedMesh) o.visible = false;
-        else if (o instanceof THREE.Mesh) o.material = this.material('#5b7a4a', 0);
-      });
-      fig.group.scale.setScalar(1.6);
-      fig.group.position.set(-20 + i * 9 + rand() * 4, 2.2, 0.5);
-      inner.add(fig.group);
-      this.herd.push({ obj: fig.group, legs: fig.legs, phase: rand() * 6, speed: 2.5 + rand() * 1.5 });
+      const a = new Animal(kind);
+      a.setMaterial(silhouette);
+      a.castShadow = false;
+      a.play('Gallop', 0);
+      a.update(rand() * 2);
+      a.root.rotation.y = Math.PI / 2; // run along +x
+      a.root.scale.setScalar(1.6);
+      a.root.position.set(-20 + i * 9 + rand() * 4, 2.0, 0.5);
+      inner.add(a.root);
+      this.herd.push({ animal: a, speed: 3.5 + rand() * 1.5 });
     });
 
     this.group.add(inner, mirror);
     this.group.visible = false;
   }
 
-  private material(color: string, mirror: number) {
+  private material(color: string, mirror: number, figure = 0) {
     return new THREE.ShaderMaterial({
       vertexShader: vert,
       fragmentShader: frag,
@@ -129,6 +136,7 @@ export class Mirage {
         ...this.uniforms,
         uColor: { value: new THREE.Color(color) },
         uMirror: { value: mirror },
+        uFigure: { value: figure },
       },
     });
   }
@@ -163,11 +171,10 @@ export class Mirage {
     this.uniforms.uTime.value = time;
     if (!this.group.visible) return;
     for (const h of this.herd) {
-      h.phase += dt * h.speed * 2.2;
-      h.obj.position.x += dt * h.speed;
-      if (h.obj.position.x > 26) h.obj.position.x = -26;
-      h.obj.position.y = 2.2 + Math.abs(Math.sin(h.phase)) * 0.25;
-      h.legs.forEach((l, i) => (l.rotation.z = Math.sin(h.phase + (i % 2 ? Math.PI : 0) + (i > 1 ? 0.6 : 0)) * 0.6));
+      const root = h.animal.root;
+      root.position.x += dt * h.speed;
+      if (root.position.x > 26) root.position.x = -26;
+      h.animal.update(dt);
     }
   }
 }
