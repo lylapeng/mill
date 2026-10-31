@@ -16,7 +16,8 @@ export interface AnimalDef {
   strength: number;
   /** extra freedom chance per attempt */
   freedomBonus: number;
-  stats: { power: number; speed: number; will: number };
+  /** shown as pips; `will` (倔) only for animals with a freedom bonus */
+  stats: { power: number; speed: number; will?: number };
 }
 
 export const ANIMALS: Record<AnimalId, AnimalDef> = {
@@ -29,7 +30,7 @@ export const ANIMALS: Record<AnimalId, AnimalDef> = {
     maxSpeed: 1.4,
     strength: 1.25,
     freedomBonus: 0,
-    stats: { power: 3, speed: 1, will: 1 },
+    stats: { power: 3, speed: 1 },
   },
   horse: {
     id: 'horse',
@@ -40,7 +41,7 @@ export const ANIMALS: Record<AnimalId, AnimalDef> = {
     maxSpeed: 2.2,
     strength: 0.9,
     freedomBonus: 0,
-    stats: { power: 1, speed: 3, will: 2 },
+    stats: { power: 1, speed: 3 },
   },
   donkey: {
     id: 'donkey',

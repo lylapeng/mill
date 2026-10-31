@@ -47,9 +47,11 @@ export function formatJin(n: number) {
   return n < 100 ? n.toFixed(1) : Math.floor(n).toString();
 }
 
-function stats(s: { power: number; speed: number; will: number }) {
+function stats(s: { power: number; speed: number; will?: number }) {
   const row = h('div', 'animal-stats');
-  for (const [label, n] of [['力', s.power], ['速', s.speed], ['倔', s.will]] as const) {
+  const rows: [string, number][] = [['力', s.power], ['速', s.speed]];
+  if (s.will) rows.push(['倔', s.will]);
+  for (const [label, n] of rows) {
     const cell = h('span', 'stat', label);
     const pips = h('span', 'pips');
     for (let i = 0; i < 3; i++) pips.append(h('i', i < n ? 'on' : ''));
