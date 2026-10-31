@@ -4,6 +4,8 @@
 
 版本：`v1`（第一个可玩版本）、`v2`（界面精修 + Quaternius 模型 + 封面轮廓）都是快照，**不要再往上提交**；之后的工作在 `v3` 上。
 
+上线：GitHub Pages（https://lylapeng.github.io/mill/，仓库 lylapeng/mill，公开）。`main` 就是线上版本，推送 `main` 会由 `.github/workflows/deploy.yml` 自动构建发布；发布新版本 = 把工作分支合进 `main` 再推送。
+
 This file is the project's memory. Read it before working; update it when a decision is made or something non-obvious is learned. Keep it short and current — delete what is no longer true.
 
 ## 边界（不做的事）
