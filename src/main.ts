@@ -12,7 +12,7 @@ import { loadMeta, loadRun, newRun, saveMeta, saveRun, type RunState } from './s
 import { Ui, formatJin } from './ui';
 import { tierOf } from './config';
 import { Yard } from './world/yard';
-import { loadModels, silhouettes } from './world/models';
+import { Animal, loadModels, silhouettes } from './world/models';
 
 // the animals are the only files to fetch; wait for them before building the world
 const loading = document.createElement('div');
@@ -205,5 +205,9 @@ if (import.meta.env.DEV) {
     if (q.has('play')) startRun(run);
     else showTitle();
   }
-  (window as unknown as { __mill: unknown }).__mill = { yard, get game() { return game; }, startRun, loadRun };
+  // THREE and Animal are here for staging shots (icons, share images) from the console
+  (window as unknown as { __mill: unknown }).__mill = {
+    yard, get game() { return game; }, get freedom() { return freedom; }, startRun, loadRun, THREE, Animal,
+    toFreedom: () => game && reachFreedom(game.run),
+  };
 }
