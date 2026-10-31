@@ -121,7 +121,7 @@ export class Animal {
 const RIDE: Record<AnimalId, THREE.Vector3> = {
   horse: new THREE.Vector3(0, -0.44, -0.82),
   donkey: new THREE.Vector3(0, -0.4, -1.15),
-  ox: new THREE.Vector3(0, -0.52, -1.6),
+  ox: new THREE.Vector3(0, -0.72, -1.25),
 };
 
 /**
@@ -133,6 +133,9 @@ export class Rider {
   readonly animal: Animal;
   /** camera height above the ground that puts the hooves on it */
   readonly eyeHeight: number;
+  /** pivots the body around the poll, so a step sways the back and shoulders but not the view */
+  private sway = new THREE.Group();
+  private swayAmount = 0;
   /** `applied` is the offset added last frame, undone before the mixer runs (clips may not touch the ears) */
   private ears: { bone: THREE.Object3D; twitch: number; applied: number }[] = [];
   private earTimer = 2;
@@ -143,14 +146,16 @@ export class Rider {
     this.animal.update(0);
     // put the Head bone at RIDE[kind] in the group's space (group faces -z, like the camera)
     this.animal.root.rotation.y = Math.PI;
-    this.group.add(this.animal.root);
+    this.sway.add(this.animal.root);
+    this.group.add(this.sway);
     this.group.updateMatrixWorld(true);
     const head = this.animal.bone('Head');
     const at = head ? head.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3(0, 1.5, -1);
     const ride = RIDE[kind];
     const feet = new THREE.Box3().setFromObject(this.animal.model).min.y;
     this.eyeHeight = at.y - feet - ride.y;
-    this.animal.root.position.set(ride.x - at.x, -this.eyeHeight - feet, ride.z - at.z);
+    this.sway.position.copy(ride);
+    this.animal.root.position.copy(at).negate();
     // GLTFLoader strips the dots from node names: Ear1.L → Ear1L (the ox has no ear bones)
     for (const side of ['L', 'R']) {
       const bone = this.animal.bone(`Ear1${side}`);
@@ -164,8 +169,8 @@ export class Rider {
     this.group.rotation.y = heading;
   }
 
-  /** `speed01` 0 stands, 1 walks briskly; `gallop` for running. */
-  update(dt: number, speed01: number, gallop = false) {
+  /** `speed01` 0 stands, 1 walks briskly; `gallop` for running; `phase` is the gait (one step per π). */
+  update(dt: number, speed01: number, gallop = false, phase = 0) {
     const a = this.animal;
     if (gallop) {
       a.play('Gallop', 0.25);
@@ -179,6 +184,13 @@ export class Rider {
     }
     for (const e of this.ears) e.bone.rotateX(-e.applied);
     a.update(dt);
+
+    // the back rolls from side to side with each step and the head dips a little
+    this.swayAmount = THREE.MathUtils.damp(this.swayAmount, gallop ? 1.6 : speed01, 4, dt);
+    const k = this.swayAmount;
+    this.sway.rotation.z = Math.sin(phase) * 0.045 * k;
+    this.sway.rotation.x = (Math.sin(phase * 2) * 0.03 - 0.01) * k;
+    this.sway.rotation.y = Math.sin(phase) * 0.025 * k;
 
     // now and then an ear flicks back, on top of whatever the clip is doing
     this.earTimer -= dt;

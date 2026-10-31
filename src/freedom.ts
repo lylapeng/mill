@@ -223,7 +223,7 @@ export class Freedom {
 
     if (this.rider) {
       this.rider.place(cam.position, Math.atan2(-dir.x, -dir.z));
-      this.rider.update(dt, 1, true);
+      this.rider.update(dt, 1, true, this.phase);
     }
     for (const h of this.herd) {
       const a = h.animal;

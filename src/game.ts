@@ -195,7 +195,7 @@ export class MillGame {
     if (this.done) return;
 
     this.updateMirage(dt);
-    this.rider.update(dt, clamp(this.speed / this.animal.maxSpeed), this.dash !== null);
+    this.rider.update(dt, clamp(this.speed / this.animal.maxSpeed), this.dash !== null, this.walkPhase);
     this.yard.mill.update(dt, time, this.run.angle);
     this.sound.ambience(clamp(this.speed / this.animal.maxSpeed), Math.min(4, (this.run.sceneLevel - 1) / 4), dt);
 
