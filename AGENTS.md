@@ -2,9 +2,35 @@
 
 第一人称 3D 网页小游戏：选一头牛 / 马 / 驴，绕着磨盘转圈拉磨。磨出的面粉用来升级磨（转得更快、更先进）和景（背景越来越美）。地平线上偶尔浮现草原蜃楼，奔向它有很小的概率挣脱绳子，走进真正的草原，游戏结束。
 
-版本：`v1`（第一个可玩版本）、`v2`（界面精修 + Quaternius 模型 + 封面轮廓）都是快照，**不要再往上提交**；之后的工作在 `v3` 上。
+## 分支与上线
 
-上线：GitHub Pages（https://lylapeng.github.io/mill/，仓库 lylapeng/mill，公开）。`main` 就是线上版本，推送 `main` 会由 `.github/workflows/deploy.yml` 自动构建发布；发布新版本 = 把工作分支合进 `main` 再推送。
+- `v1`（第一个可玩版本）、`v2`（界面精修 + Quaternius 模型 + 封面轮廓）是快照，**不要再往上提交**。用户说"保存这一版"= 冻结当前分支，后续开下一个 `vN`。
+- `v3`：网页版的工作分支。`main` = 线上版本（与 `v3` 同步）。
+- `minigame`：小程序/小游戏版，从 `v3` 分出（见下文「小游戏版」）。网页版的修复要同步过来（`git merge v3`）。
+- 上线：GitHub Pages，https://lylapeng.github.io/mill/ （仓库 lylapeng/mill，公开）。`.github/workflows/deploy.yml` 构建 `main`。
+  **推送 `main` 目前不会自动触发部署**（原因未查明，GitHub 状态正常），发布要手动：`gh workflow run deploy.yml -R lylapeng/mill --ref main`。
+- Cloudflare Pages（国内访问稍快）：待用户在 Cloudflare 后台连接 GitHub 仓库（生产分支 `main`，构建 `npm run build`，输出 `dist`）。
+
+## 小游戏版（进行中）
+
+- 目标：微信小游戏，之后小红书。用户已注册微信小游戏账号，正在填基础信息。
+- **备案类型是「单机」**（小游戏备案）：所有功能离线可用。因此模型、字体必须打进包里（分包），**运行时不能从网上下载任何资源**，否则变成"联网"、要走小程序备案和 ICP 域名。以后加排行榜/云存档等需要服务器的功能会改变备案类型。
+- 个人主体上架（据 2022 年前后资料，以后台为准）：计算机软件著作权登记证书（最慢，几周到几个月）+ 游戏自审自查报告；不开支付不需要版号。
+- 技术要点（未开始改代码）：小游戏没有 DOM/CSS，HUD、标题、提示都要改为画在 canvas 上（工作量最大）；three.js 通过 weapp-adapter 运行；存档改 `wx.setStorageSync`；触屏操作；包体限制主包 4 MB、总计 8 MB（以后台为准），模型压缩到约 1 MB 放分包；手机上降阴影、草量、bloom。建议先把平台相关部分（存档、声音、输入、资源加载）抽成接口，网页版也能用。小游戏很可能改竖屏。
+- 小红书：只查到"小红书小程序"资料（需主体认证 + 工信部备案），没找到"小游戏"公开接入文档，待用户在后台确认是否支持 WebGL 小游戏。
+- 名称建议：「拉磨」；被占用则「拉磨与草原」，简称「拉磨」。介绍文案：一圈，又一圈。选一头牛、马或驴，绕着磨盘拉磨，磨出的面粉用来升级磨坊和风景。地平线上偶尔浮现草原——奔向它，也许能挣脱绳子。
+- 头像：候选在 `~/Desktop/拉磨图标/`（用 `tools/shots/icon.mjs` 在游戏里摆拍渲染）。用户喜欢的方向：驴头特写（正面夕阳光，`head-donkey-front`）、驴拉磨构图（`mill-donkey-7oclock` 等）。还没最终定。
+- 备案截图与各场景描述文案在 `~/Desktop/拉磨图标/备案截图/`。**这些是网页版横屏截图**；小游戏版做好后要按新界面重拍。
+
+## 图标 / 摆拍的经验
+
+- 平面渐变 + 剪影 + 半透明"磨"字的头像，用户觉得都不好看；用游戏引擎在场景里摆拍效果好得多。
+- 一个主体、轮廓清楚、缩到 32 px 能认出；俯视磨道在小尺寸下会糊。
+- 逆光剪影要关 bloom（否则被冲淡），太阳直接画进天空着色器；逆光下的脸会太黑，要么补光，要么让夕阳从镜头这边照过来。
+- 驴绕磨行走时**身体与磨道相切、磨杆沿半径**连到肩上；从正面看，要让驴身水平、头朝左，只能放在 7–8 点钟方向（6 点 = 离镜头最近，9 点 = 左）。放在 9 点是错的。
+- 给用户看的文件放 `~/Desktop/拉磨图标/`，不要只给临时目录路径（用户找不到）。
+
+This file is the project's memory. Read it before working; update it when a decision is made or something non-obvious is learned. Keep it short and current — delete what is no longer true.
 
 This file is the project's memory. Read it before working; update it when a decision is made or something non-obvious is learned. Keep it short and current — delete what is no longer true.
 
@@ -13,7 +39,7 @@ This file is the project's memory. Read it before working; update it when a deci
 - 纯静态前端，无服务器、无账号、无排行榜、无联机、无内购。
 - 不引入物理引擎、不引入 UI 框架（React 等）。
 - 第三方素材只用 CC0（字体可以用 SIL OFL），并在此记录来源。场景、磨、树由几何体程序化生成；声音由 Web Audio 合成。
-- **素材来源**：`public/models/*.glb` 是 Quaternius「Ultimate Animated Animal Pack」（CC0，经 poly.pizza 下载）：horse、horse-white、donkey、ox（原为 Bull，代码里改成黄牛色）。只保留了 Idle / Walk / Gallop / Eating 四套动画（用 `@gltf-transform` 裁剪、resample、prune，工具放在临时目录，不进项目）。
+- **素材来源**：`public/models/*.glb` 是 Quaternius「Ultimate Animated Animal Pack」（CC0，经 poly.pizza 下载）：horse、horse-white、donkey、ox（原为 Bull，代码里改成黄牛色）。只保留了 Idle / Walk / Gallop / Eating 四套动画（用 `tools/shots/slim.mjs`，依赖装在临时目录）。
 - **字体**：封面标题"拉磨"用马善政楷书（Ma Shan Zheng，SIL OFL 1.1，Google Fonts），只裁出这两个字（`public/fonts/mashanzheng-lamo.woff2`，约 2 KB），授权文本在 `public/fonts/OFL-MaShanZheng.txt`。其余文字仍用系统宋体（用户觉得现在的字体就不错）。
 - 桌面端优先；手机端只保证"点左右半屏迈步"能玩，布局有基础适配。
 
@@ -33,7 +59,7 @@ This file is the project's memory. Read it before working; update it when a deci
 
 ## 已定的设计决定
 
-- **视角是"骑手视角"**：相机在头的稍后上方（`VIEW_LIFT`），画面下方能看见自己的后脑、耳朵/角。试过纯眼睛位置 + 顶部露耳朵，耳朵像悬空的锥子，否掉了。
+- **视角是"骑手视角"**：相机在头的稍后上方（位置见 `models.ts` 的 `RIDE`），画面下方能看见自己的后脑、耳朵/角。试过纯眼睛位置 + 顶部露耳朵，耳朵像悬空的锥子，否掉了。
 - **磨在身侧，默认看不见**：头默认向内偏 `HEAD_YAW`，鼠标移到屏幕右侧会转头看磨；升级磨后自动"回头看一眼"（`glance`）。
 - 磨的各档只加不减，院子保留历史；新档"长出来"（缩放动画）。
 - 蜃楼浮在地平线上方并带倒影；成功与失败在前 1.25 秒完全一样，悬念到绳子绷紧那一刻才揭晓。
@@ -86,20 +112,20 @@ src/
 
 - dev 模式 URL 参数直接跳状态看画面：`/?scene=17&mill=17&flour=1e5&fails=20&animal=horse&play`
   （不带 `play` 停在标题页；会写入存档）。
-- `window.__mill` 在 dev 模式暴露 `yard`、`game`。常用：
+- `window.__mill` 在 dev 模式暴露 `yard`、`game`、`freedom`、`THREE`、`Animal`、`toFreedom()`（直接进结局）。常用：
   - 立刻出蜃楼：`__mill.game.mirageTimer = 0`；摆到正前方：`__mill.yard.mirage.place(__mill.game.run.angle + Math.PI/2 + 0.3, 105)`
   - 强制冲刺：`__mill.game.promptShown = true; __mill.game.dashIntent()`（`run.mirageFails = 29` 必成功）
   - 模拟迈步：对 `window` 派发 `KeyboardEvent('keydown', { code: 'KeyA' / 'KeyD' })`
 - 预览外部模型：在临时目录起一个带 CORS 的静态服务器，页面里 `fetch` GLTFLoader 的源码找出 vite 预打包的 three 地址，再 `import(location.origin + 地址)`，这样和游戏共用同一个 three 实例。
-- 截图脚本可以注入一段 JS 再截图（用来触发升级、蜃楼、冲刺），见临时目录里的 `shot.mjs` 写法：`name=?query@等待毫秒#脚本`。
+- 截图、摆拍、图标对比、模型裁剪的脚本在 `tools/shots/`（用法见那里的 README）。
 - 截图验证画面：用 Playwright + Chromium headless shell（`--use-angle=metal`）打开 dev server 等 3 秒再截。
   `npx playwright install` 在本机会卡住，直接从 cdn.playwright.dev 下载 headless shell 的 zip 并用 `executablePath` 更可靠。
   headless Firefox 的 `--screenshot` 在 load 时就截图，拿不到 WebGL 画面，别用。
-  这些工具放在临时目录，不要装进项目。
+  Playwright、浏览器、gltf-transform 放在临时目录，不要装进项目（`tools/shots/` 只放脚本）。
 
 ## 已知待办 / 想法
 
-- 手机端：HUD 布局更紧凑、触屏提示文案。
+- 手机端：HUD 布局更紧凑、触屏提示文案（小游戏版会一并解决）。
 - 已获自由的动物可以再做成"图鉴"。
 - 封面在有存档时，动物轮廓会挡住磨。
 - 自由草原：可以加天黑、星空、和同伴并肩跑等后续。
