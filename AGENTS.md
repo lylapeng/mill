@@ -10,8 +10,9 @@ This file is the project's memory. Read it before working; update it when a deci
 
 - 纯静态前端，无服务器、无账号、无排行榜、无联机、无内购。
 - 不引入物理引擎、不引入 UI 框架（React 等）。
-- 第三方素材只用 CC0，并在此记录来源。场景、磨、树由几何体程序化生成；声音由 Web Audio 合成。
+- 第三方素材只用 CC0（字体可以用 SIL OFL），并在此记录来源。场景、磨、树由几何体程序化生成；声音由 Web Audio 合成。
 - **素材来源**：`public/models/*.glb` 是 Quaternius「Ultimate Animated Animal Pack」（CC0，经 poly.pizza 下载）：horse、horse-white、donkey、ox（原为 Bull，代码里改成黄牛色）。只保留了 Idle / Walk / Gallop / Eating 四套动画（用 `@gltf-transform` 裁剪、resample、prune，工具放在临时目录，不进项目）。
+- **字体**：封面标题"拉磨"用马善政楷书（Ma Shan Zheng，SIL OFL 1.1，Google Fonts），只裁出这两个字（`public/fonts/mashanzheng-lamo.woff2`，约 2 KB），授权文本在 `public/fonts/OFL-MaShanZheng.txt`。其余文字仍用系统宋体（用户觉得现在的字体就不错）。
 - 桌面端优先；手机端只保证"点左右半屏迈步"能玩，布局有基础适配。
 
 ## 调性

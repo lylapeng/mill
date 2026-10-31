@@ -1,3 +1,10 @@
+/* The title's two characters in 马善政楷书 (SIL OFL, see public/fonts); subset to 拉磨 only. */
+@font-face {
+  font-family: 'Ma Shan Zheng Title';
+  src: url('/fonts/mashanzheng-lamo.woff2') format('woff2');
+  font-display: block;
+}
+
 /* Type scale, ink levels and shapes are defined once here; everything below uses them. */
 :root {
   /* type: three text sizes, two display sizes */
@@ -101,6 +108,7 @@ button {
 }
 .title.leaving { opacity: 0; pointer-events: none; }
 .title h1 {
+  font-family: 'Ma Shan Zheng Title', var(--serif);
   font-size: var(--fs-hero);
   font-weight: 400;
   letter-spacing: var(--track-l);
