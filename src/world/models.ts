@@ -16,7 +16,9 @@ const FILES: Record<Breed, string> = {
   whiteHorse: 'models/horse-white.glb',
   donkey: 'models/donkey.glb',
 };
-const HEIGHT: Record<Breed, number> = { ox: 1.6, horse: 1.8, whiteHorse: 1.8, donkey: 1.4 };
+// a real gap between them, so the yard looks different from each back: the donkey is
+// a head shorter than the ox, the horse a head taller
+const HEIGHT: Record<Breed, number> = { ox: 1.65, horse: 2.05, whiteHorse: 2.05, donkey: 1.2 };
 /** the ox model is a black bull; ours is a yellow-brown working ox */
 const RECOLOUR: Partial<Record<Breed, Record<string, string>>> = {
   ox: { Main: '#7a4a2a', Main_Light: '#b58a5e', Muzzle: '#c9ab8a' },
@@ -111,11 +113,15 @@ export class Animal {
   }
 }
 
-/** where the poll (the Head bone) sits relative to the camera, per animal */
+/**
+ * Where the poll (the Head bone) sits relative to the camera, per animal. The models
+ * keep their true sizes, so at similar offsets the horse's head and neck fill much more
+ * of the view than the donkey's; the horse also sits a little closer to its head.
+ */
 const RIDE: Record<AnimalId, THREE.Vector3> = {
-  horse: new THREE.Vector3(0, -0.5, -1.05),
-  donkey: new THREE.Vector3(0, -0.46, -0.95),
-  ox: new THREE.Vector3(0, -0.5, -1.25),
+  horse: new THREE.Vector3(0, -0.44, -0.82),
+  donkey: new THREE.Vector3(0, -0.4, -1.15),
+  ox: new THREE.Vector3(0, -0.52, -1.6),
 };
 
 /**
@@ -141,9 +147,10 @@ export class Rider {
     this.group.updateMatrixWorld(true);
     const head = this.animal.bone('Head');
     const at = head ? head.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3(0, 1.5, -1);
+    const ride = RIDE[kind];
     const feet = new THREE.Box3().setFromObject(this.animal.model).min.y;
-    this.eyeHeight = at.y - feet - RIDE[kind].y;
-    this.animal.root.position.set(RIDE[kind].x - at.x, -this.eyeHeight - feet, RIDE[kind].z - at.z);
+    this.eyeHeight = at.y - feet - ride.y;
+    this.animal.root.position.set(ride.x - at.x, -this.eyeHeight - feet, ride.z - at.z);
     // GLTFLoader strips the dots from node names: Ear1.L → Ear1L (the ox has no ear bones)
     for (const side of ['L', 'R']) {
       const bone = this.animal.bone(`Ear1${side}`);
