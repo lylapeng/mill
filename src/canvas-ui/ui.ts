@@ -108,6 +108,8 @@ export class CanvasUi implements GameUi {
     /** scratch canvases for the tinted silhouettes */
     private createCanvas: () => HTMLCanvasElement,
     fonts: { serif: string; title: string },
+    /** the cover's name; the WeChat build is 拉磨的日子 (拉磨 was taken there) */
+    private name = TEXT.title,
   ) {
     this.ctx = canvas.getContext('2d')!;
     this.p = new Painter(this.ctx, fonts.serif, fonts.title);
@@ -409,9 +411,13 @@ export class CanvasUi implements GameUi {
     if (!leaving) this.hit(0, 0, w, h, () => {});
 
     // top: the name and one line
-    const hero = Math.round(Math.min(112, Math.max(56, (this.portrait ? 0.19 : 0.09) * w)));
+    // a longer name tracks tighter and shrinks to fit the width
+    const n = [...this.name].length;
+    const track = n > 2 ? TRACK_S : TRACK_L;
+    const fit = (w - 48 - safe.left - safe.right) / (n * (1 + track));
+    const hero = Math.round(Math.min(112, fit, Math.max(n > 2 ? 0 : 56, (this.portrait ? 0.19 : 0.09) * w)));
     const top = safe.top + h * (this.portrait ? 0.1 : 0.07);
-    this.text(TEXT.title, w / 2, top + hero * 0.5, { size: hero, family: this.p.title, track: TRACK_L, align: 'center' });
+    this.text(this.name, w / 2, top + hero * 0.5, { size: hero, family: this.p.title, track, align: 'center' });
     const sub = { size: 15, track: TRACK_S, color: INK_2, align: 'center' as const };
     this.p.wrap(TEXT.subtitle, w - 40, sub).forEach((line, i) => this.text(line, w / 2, top + hero * 1.05 + 20 + i * 24, sub));
 

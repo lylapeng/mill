@@ -30,4 +30,4 @@ async function subset(family, text, out) {
 const text = [...chars].sort().join('');
 console.log(chars.size, 'characters');
 await subset('Noto+Serif+SC', text, 'minigame/fonts/noto-serif-sc.ttf');
-await subset('Ma+Shan+Zheng', '拉磨', 'minigame/fonts/mashanzheng-lamo.ttf');
+await subset('Ma+Shan+Zheng', '拉磨的日子', 'minigame/fonts/mashanzheng-lamo.ttf');

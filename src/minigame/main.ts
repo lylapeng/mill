@@ -72,7 +72,7 @@ function start(gl: WebGL2RenderingContext) {
     title: loaded.title ? `"${loaded.title}"` : 'serif',
   };
   const uiCanvas = wx.createCanvas();
-  const ui = new CanvasUi(uiCanvas, () => wx.createCanvas(), fonts);
+  const ui = new CanvasUi(uiCanvas, () => wx.createCanvas(), fonts, '拉磨的日子');
   const uiPr = Math.min(info.pixelRatio, 2);
   ui.resize(w, h, uiPr, safe, menu ? menu.bottom : 0);
   const overlay = new Overlay(uiCanvas);
