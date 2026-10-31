@@ -24,7 +24,7 @@ This file is the project's memory. Read it before working; update it when a deci
 ## 技术
 
 - Vite + TypeScript（strict）+ three.js r187。`npm run dev` / `npm run build`（build 先跑 `tsc --noEmit`）。
-- 渲染：WebGLRenderer + NeutralToneMapping + EffectComposer（RenderPass → UnrealBloomPass → OutputPass）。
+- 渲染：WebGLRenderer + NeutralToneMapping + EffectComposer（RenderPass → UnrealBloomPass → OutputPass）。bloom 的阈值过渡要宽（`smoothWidth` 0.35）：默认 0.01 时阈值等亮线会变成光晕的硬边，低太阳周围出现过钟形/抛物线状光晕。天空渐变不要用 `sqrt(高度)`（地平线处斜率无穷大，会把光晕拉成钟形）。
 - 天空是自写渐变着色器（`world/sky.ts`），不用 three 的 Preetham Sky：为了让地平线颜色 == 雾色，远山无缝融入。
 - 环境光照：PMREM 从天空单独渲染（`Yard.refreshEnvironment`），调色变化后节流刷新。
 - 存档：localStorage，`mill.run.v1`（当前一局）、`mill.meta.v1`（已获自由的动物）。读写都 try/catch。

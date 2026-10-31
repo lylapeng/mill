@@ -37,12 +37,16 @@ float fbm(vec2 p) {
 void main() {
   vec3 d = normalize(vDir);
   float up = clamp(d.y, 0.0, 1.0);
-  vec3 col = mix(uHorizon, uTop, pow(up, 0.5));
+  // rises quickly off the horizon but with a finite slope there (sqrt's infinite slope
+  // bent the sun's glow into a bell around a low sun)
+  vec3 col = mix(uHorizon, uTop, (1.0 - exp(-up * 3.2) * (1.0 + up * 1.1)) / 0.914);
   float sd = max(dot(d, uSunDir), 0.0);
 
-  // warm glow around the sun and along the horizon beneath it
+  // warm glow around the sun and along the horizon beneath it. Both fall off with the
+  // square of their distance (angle, height), so where they overlap near a low sun the
+  // glow is a wide ellipse lying on the horizon; a linear height falloff made it a parabola.
   col += uSunColor * (pow(sd, 6.0) * 0.22 + pow(sd, 48.0) * 0.5);
-  col += uSunColor * 0.1 * pow(1.0 - up, 8.0) * (0.4 + 0.6 * sd);
+  col += uSunColor * 0.1 * exp(-up * up * 40.0) * (0.4 + 0.6 * sd);
   col += uSunColor * smoothstep(0.99935, 0.9997, sd) * 5.0;
 
   if (d.y > 0.0) {

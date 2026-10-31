@@ -42,6 +42,9 @@ let meta = loadMeta();
 const composer = new EffectComposer(renderer);
 const renderPass = new RenderPass(yard.scene, yard.camera);
 const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.2, 0.7, 0.82);
+// ease into the threshold instead of switching on at it: a hard threshold traces the
+// sky's brightness contour, which around a low sun drew a bell-shaped halo
+(bloom.highPassUniforms as Record<string, THREE.IUniform<number>>).smoothWidth.value = 0.35;
 composer.addPass(renderPass);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
