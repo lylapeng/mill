@@ -4,7 +4,8 @@ import type { Input } from './input';
 import { Animal, Rider, type Breed } from './world/models';
 import { makePalette, samplePalette } from './world/palette';
 import { Sky } from './world/sky';
-import { damp, meadowHeight, meadowHeightGLSL, mulberry32 } from './util';
+import { platform } from './platform';
+import { damp, fitFov, meadowHeight, meadowHeightGLSL, mulberry32 } from './util';
 
 // The grassland: endless, wind over the grass, a low sun ahead.
 // Grass and ground wrap around the camera, so you can run forever.
@@ -36,7 +37,7 @@ void main() {
   p.z += bend * 0.3 * sin(uTime * 2.0 + r * 6.0);
   vec3 world = vec3(wp.x, meadowHeight(wp), wp.y) + p;
   // fade out at the edge of the tile so the wrap is invisible
-  float edge = smoothstep(${(TILE / 2).toFixed(1)}, ${(TILE / 2 - 8).toFixed(1)}, length(local));
+  float edge = 1.0 - smoothstep(${(TILE / 2 - 8).toFixed(1)}, ${(TILE / 2).toFixed(1)}, length(local));
   world.y -= (1.0 - edge) * 1.5;
   gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
 }`;
@@ -135,7 +136,7 @@ export class Freedom {
       verts.push(-w0, y0, 0, w0, y0, 0, -w1, y1, 0, w0, y0, 0, w1, y1, 0, -w1, y1, 0);
     }
     blade.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-    const count = 90000;
+    const count = platform.quality.meadowGrass;
     const offsets = new Float32Array(count * 3);
     const rand = mulberry32(5);
     for (let i = 0; i < count; i++) offsets.set([rand() * TILE, rand() * TILE, rand()], i * 3);
@@ -211,6 +212,11 @@ export class Freedom {
     this.speed = damp(this.speed, this.t < 6 ? 7 : 4.5, 0.5, dt);
     this.phase += dt * this.speed * 1.4;
     const cam = this.camera;
+    const fov = fitFov(72, cam.aspect);
+    if (cam.fov !== fov) {
+      cam.fov = fov;
+      cam.updateProjectionMatrix();
+    }
     const dir = new THREE.Vector3(Math.sin(this.heading), 0, Math.cos(this.heading));
     cam.position.addScaledVector(dir, this.speed * dt);
     cam.position.y = meadowHeight(cam.position.x, cam.position.z) + (this.rider?.eyeHeight ?? 2) + Math.abs(Math.sin(this.phase)) * 0.09;

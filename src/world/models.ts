@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import type { AnimalId } from '../config';
+import { platform } from '../platform';
+import type { Mask } from '../ui-api';
 
 // The animals are Quaternius models (CC0, see AGENTS.md), trimmed to four clips:
 // Idle, Walk, Gallop, Eating. Each instance gets its own skeleton and mixer.
@@ -35,7 +37,7 @@ export async function loadModels() {
   const loader = new GLTFLoader();
   await Promise.all(
     (Object.keys(FILES) as Breed[]).map(async (breed) => {
-      const gltf = await loader.loadAsync(import.meta.env.BASE_URL + FILES[breed]);
+      const gltf = await loader.parseAsync(await platform.readFile(FILES[breed]), '');
       const recolour = RECOLOUR[breed];
       gltf.scene.traverse((o) => {
         if (!(o instanceof THREE.Mesh)) return;
@@ -211,23 +213,26 @@ export class Rider {
 }
 
 /**
- * Side-on silhouettes of the three animals, mid-stride, as PNG data URLs.
- * All share one scale, so the donkey stands smaller than the horse.
+ * Side-on silhouettes of the three animals, mid-stride, as white masks.
+ * All share one scale, so the donkey stands smaller than the horse. Drawn with the
+ * game's own renderer into a render target (the mini game can't open a second context).
  */
-export function silhouettes(): Record<AnimalId, string> {
-  const w = 480, h = 300;
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
-  renderer.setClearColor(0x000000, 0);
+export function silhouettes(renderer: THREE.WebGLRenderer): Record<AnimalId, Mask> {
+  // twice the size it is shown at, so scaling down smooths the edges
+  const w = 960, h = 600;
+  const target = new THREE.WebGLRenderTarget(w, h);
   const scene = new THREE.Scene();
   const ink = new THREE.MeshBasicMaterial({ color: '#ffffff' });
   // 3.5 m across, feet on the bottom edge; tall enough for the horse's ears (HEIGHT.horse)
   const span = 3.5, tall = (span * h) / w;
   const camera = new THREE.OrthographicCamera(-span / 2, span / 2, tall - 0.06, -0.06, 0.1, 20);
   camera.position.set(0, 0, 10);
-  const out = {} as Record<AnimalId, string>;
+  const clear = renderer.getClearColor(new THREE.Color());
+  const clearAlpha = renderer.getClearAlpha();
+  renderer.setClearColor(0x000000, 0);
+  renderer.setRenderTarget(target);
+  const pixels = new Uint8Array(w * h * 4);
+  const out = {} as Record<AnimalId, Mask>;
   for (const kind of ['ox', 'horse', 'donkey'] as AnimalId[]) {
     const a = new Animal(kind);
     a.setMaterial(ink);
@@ -242,12 +247,18 @@ export function silhouettes(): Record<AnimalId, string> {
     const box = new THREE.Box3().setFromObject(a.root, true);
     a.root.position.x = -(box.min.x + box.max.x) / 2;
     a.root.position.y = -box.min.y;
+    renderer.clear();
     renderer.render(scene, camera);
-    out[kind] = canvas.toDataURL('image/png');
+    renderer.readRenderTargetPixels(target, 0, 0, w, h, pixels);
+    // GL rows run bottom-up
+    const data = new Uint8Array(w * h * 4);
+    for (let y = 0; y < h; y++) data.set(pixels.subarray((h - 1 - y) * w * 4, (h - y) * w * 4), y * w * 4);
+    out[kind] = { width: w, height: h, data };
     scene.remove(a.root);
   }
+  renderer.setRenderTarget(null);
+  renderer.setClearColor(clear, clearAlpha);
   ink.dispose();
-  renderer.dispose();
-  renderer.forceContextLoss();
+  target.dispose();
   return out;
 }

@@ -1,4 +1,5 @@
 import type { AnimalId } from './config';
+import { platform } from './platform';
 
 export interface RunState {
   animal: AnimalId;
@@ -35,7 +36,7 @@ export const newRun = (animal: AnimalId): RunState => ({
 
 function read<T>(key: string): T | null {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = platform.load(key);
     return raw ? (JSON.parse(raw) as T) : null;
   } catch {
     return null;
@@ -44,8 +45,7 @@ function read<T>(key: string): T | null {
 
 function write(key: string, value: unknown) {
   try {
-    if (value === null) localStorage.removeItem(key);
-    else localStorage.setItem(key, JSON.stringify(value));
+    platform.store(key, value === null ? null : JSON.stringify(value));
   } catch {
     // storage unavailable (private mode etc.) — the game still runs, it just won't remember
   }

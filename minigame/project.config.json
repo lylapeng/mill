@@ -1,0 +1,14 @@
+{
+  "description": "拉磨 · 微信小游戏。由 npm run build:minigame 生成 dist-minigame/，在微信开发者工具里导入那个目录。",
+  "compileType": "game",
+  "appid": "wxd83fd8d0e81f091b",
+  "projectname": "lamo",
+  "setting": {
+    "es6": true,
+    "enhance": true,
+    "minified": false,
+    "urlCheck": false
+  },
+  "packOptions": { "ignore": [], "include": [] },
+  "condition": {}
+}

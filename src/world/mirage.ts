@@ -47,7 +47,7 @@ void main() {
   // the image lifts off the horizon; its reflection fades away from the seam
   float edge = smoothstep(-0.3, 1.2, vY);
   if (uMirror > 0.5) edge *= (1.0 - smoothstep(1.0, 7.0, vY)) * 0.4;
-  float sideFade = smoothstep(36.0, 24.0, abs(vX));
+  float sideFade = 1.0 - smoothstep(24.0, 36.0, abs(vX));
   float a = uOpacity * clear * edge * sideFade;
   if (a < 0.003) discard;
   gl_FragColor = vec4(c, a);

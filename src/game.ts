@@ -5,11 +5,12 @@ import {
 } from './config';
 import type { Sound } from './audio';
 import type { Input } from './input';
+import { platform } from './platform';
 import { saveRun, type RunState } from './save';
-import type { Ui, UpgradeInfo } from './ui';
+import type { GameUi, UpgradeInfo } from './ui-api';
 import { Rider } from './world/models';
 import type { Yard } from './world/yard';
-import { clamp, damp, smoothstep } from './util';
+import { clamp, damp, fitFov, smoothstep } from './util';
 
 // The mill loop: step in rhythm, walk the circle, grind flour, upgrade,
 // and every so often run toward the grassland on the horizon.
@@ -63,7 +64,7 @@ export class MillGame {
 
   constructor(
     private yard: Yard,
-    private ui: Ui,
+    private ui: GameUi,
     private sound: Sound,
     private input: Input,
     readonly run: RunState,
@@ -91,7 +92,7 @@ export class MillGame {
 
   step(side: 'L' | 'R') {
     if (this.dash || this.done) return;
-    const now = performance.now() / 1000;
+    const now = platform.now();
     const interval = now - this.lastStepAt;
     if (side === this.lastSide && interval < 0.6) {
       this.speed *= RHYTHM.stumbleKeep;
@@ -227,7 +228,7 @@ export class MillGame {
     }
 
     // the cadence fades if you stop
-    if (performance.now() / 1000 - this.lastStepAt > RHYTHM.maxInterval * 1.5 && this.combo > 0) {
+    if (platform.now() - this.lastStepAt > RHYTHM.maxInterval * 1.5 && this.combo > 0) {
       this.combo = 0;
       this.ui.cadence(0);
     }
@@ -266,8 +267,9 @@ export class MillGame {
     // the body follows the head only part of the way; beyond that it's just the eyes turning
     const body = clamp(this.yaw, -0.5, 0.45);
     this.rider.place(cam.position, Math.atan2(Math.sin(a) * Math.cos(body) + Math.cos(a) * Math.sin(body), -Math.cos(a) * Math.cos(body) + Math.sin(a) * Math.sin(body)));
-    if (Math.abs(cam.fov - 70) > 0.01) {
-      cam.fov = damp(cam.fov, 70, 3, dt);
+    const fov = fitFov(70, cam.aspect);
+    if (Math.abs(cam.fov - fov) > 0.01) {
+      cam.fov = damp(cam.fov, fov, 3, dt);
       cam.updateProjectionMatrix();
     }
   }
@@ -372,7 +374,8 @@ export class MillGame {
     this.shake = damp(this.shake, 0, 4, dt);
     this.rider.place(cam.position, Math.atan2(-look.x, -look.z));
     cam.lookAt(look.add(cam.position));
-    cam.fov = fov;
+    // the dash zooms out relative to the resting view, whatever the screen shape
+    cam.fov = Math.min(120, (fov * fitFov(70, cam.aspect)) / 70);
     cam.updateProjectionMatrix();
   }
 

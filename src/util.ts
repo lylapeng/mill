@@ -20,6 +20,17 @@ export const smoothstep = (a: number, b: number, x: number) => {
 export const damp = (current: number, target: number, rate: number, dt: number) =>
   lerp(current, target, 1 - Math.exp(-rate * dt));
 
+/**
+ * Vertical field of view that keeps at least `minWide` degrees across, so a tall
+ * portrait screen widens the view instead of becoming a slit. Landscape keeps `fov`.
+ */
+export function fitFov(fov: number, aspect: number, minWide = 52) {
+  const toRad = Math.PI / 180;
+  const wide = 2 * Math.atan(Math.tan((fov * toRad) / 2) * aspect) / toRad;
+  if (wide >= minWide) return fov;
+  return Math.min(96, (2 * Math.atan(Math.tan((minWide * toRad) / 2) / aspect)) / toRad);
+}
+
 /** Rolling hills around the yard; flat where the mill stands. */
 export function yardHeight(x: number, z: number) {
   const r = Math.hypot(x, z);

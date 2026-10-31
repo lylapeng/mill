@@ -307,7 +307,7 @@ export class Mill {
         varying float vLife;
         void main() {
           float d = length(gl_PointCoord - 0.5);
-          float a = smoothstep(0.5, 0.1, d) * (1.0 - vLife) * smoothstep(0.0, 0.08, vLife) * 0.45;
+          float a = (1.0 - smoothstep(0.1, 0.5, d)) * (1.0 - vLife) * smoothstep(0.0, 0.08, vLife) * 0.45;
           gl_FragColor = vec4(vec3(0.97), a);
         }`,
     });

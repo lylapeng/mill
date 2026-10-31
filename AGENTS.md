@@ -6,21 +6,38 @@
 
 - `v1`（第一个可玩版本）、`v2`（界面精修 + Quaternius 模型 + 封面轮廓）是快照，**不要再往上提交**。用户说"保存这一版"= 冻结当前分支，后续开下一个 `vN`。
 - `v3`：网页版的工作分支。`main` = 线上版本（与 `v3` 同步）。
-- `minigame`：小程序/小游戏版，从 `v3` 分出（见下文「小游戏版」）。网页版的修复要同步过来（`git merge v3`）。
+- `minigame`：小程序/小游戏版，从 `v3` 分出（见下文「小游戏版」）。网页版的修复要同步过来（`git merge v3`）。这个分支重构了共用代码（`platform.ts`、`app.ts`、`ui-api.ts`，网页版也在用），合并 v3 时注意冲突；反过来网页版也可以直接从这个分支上线。
 - 上线：GitHub Pages，https://lylapeng.github.io/mill/ （仓库 lylapeng/mill，公开）。`.github/workflows/deploy.yml` 构建 `main`。
   **推送 `main` 目前不会自动触发部署**（原因未查明，GitHub 状态正常），发布要手动：`gh workflow run deploy.yml -R lylapeng/mill --ref main`。
 - Cloudflare Pages（国内访问稍快）：待用户在 Cloudflare 后台连接 GitHub 仓库（生产分支 `main`，构建 `npm run build`，输出 `dist`）。
 
 ## 小游戏版（进行中）
 
-- 目标：微信小游戏，之后小红书。用户已注册微信小游戏账号，正在填基础信息。
-- **备案类型是「单机」**（小游戏备案）：所有功能离线可用。因此模型、字体必须打进包里（分包），**运行时不能从网上下载任何资源**，否则变成"联网"、要走小程序备案和 ICP 域名。以后加排行榜/云存档等需要服务器的功能会改变备案类型。
+- 目标：微信小游戏，之后小红书。用户已注册微信小游戏账号、已装微信开发者工具。
+- **备案类型是「单机」**（小游戏备案）：所有功能离线可用。模型、字体都打进包里，**运行时不能从网上下载任何资源**，否则变成"联网"、要走小程序备案和 ICP 域名。以后加排行榜/云存档等需要服务器的功能会改变备案类型。
 - 个人主体上架（据 2022 年前后资料，以后台为准）：计算机软件著作权登记证书（最慢，几周到几个月）+ 游戏自审自查报告；不开支付不需要版号。
-- 技术要点（未开始改代码）：小游戏没有 DOM/CSS，HUD、标题、提示都要改为画在 canvas 上（工作量最大）；three.js 通过 weapp-adapter 运行；存档改 `wx.setStorageSync`；触屏操作；包体限制主包 4 MB、总计 8 MB（以后台为准），模型压缩到约 1 MB 放分包；手机上降阴影、草量、bloom。建议先把平台相关部分（存档、声音、输入、资源加载）抽成接口，网页版也能用。小游戏很可能改竖屏。
-- 小红书：只查到"小红书小程序"资料（需主体认证 + 工信部备案），没找到"小游戏"公开接入文档，待用户在后台确认是否支持 WebGL 小游戏。
+- **构建**：`npm run build:minigame` → `dist-minigame/`（game.js + game.json + project.config.json + models + fonts，约 2 MB，主包够用，不需要分包）。开发者工具里"导入"这个目录。AppID `wxd83fd8d0e81f091b`（在 `minigame/project.config.json`）。
+- **WebGL2 是硬要求**（three r163 起不支持 WebGL1）。拿不到 WebGL2 时显示一句"这台手机暂时跑不动"。不支持浮点渲染目标的手机自动关 bloom 和环境光贴图（`App` 里判断）。
+- **iOS 高性能模式：后台已开通，但 game.json 里没打开**。打开 `iOSHighPerformance` + `iOSHighPerformance+` 后 iPhone 16 上整屏不停闪（原因未查明，网上也没找到现成答案）；普通模式下 iPhone 16（iOS 18）本身就有 WebGL2，一切正常。老 iPhone（iOS 15–17）普通模式下有没有 WebGL2 还没验证。以后要再试，先只开 `iOSHighPerformance`（不带 +），一次只改一个变量。
+- **竖屏**（game.json `deviceOrientation: portrait`）。竖屏时 `fitFov` 把垂直视角放大到横向至少 52°；界面按竖屏排过版。横屏的游戏画面能用，但**封面在横屏手机上会挤在一起**（三只动物压住标题），真要横屏得重排封面。
+- 架构（网页版也走同一套）：
+  - `platform.ts`：存档、时间、声音上下文、读包内文件、画质（像素比、阴影、草量）。网页是默认实现，小游戏启动时 `setPlatform` 换掉。
+  - `app.ts`：标题 → 拉磨 → 草原的整体流程和渲染，两个入口共用。`main.ts`（网页）和 `minigame/main.ts`（小游戏）只管画布、UI、输入和帧循环。
+  - `ui-api.ts`：`GameUi` 接口。网页用 DOM（`ui.ts`），小游戏用 `canvas-ui/`：在第二张 2D 画布上**立即模式**重画，作为纹理盖在 3D 画面上（`Overlay`）；最多 30 次/秒重画、有变化才上传。小游戏只有一张上屏画布，没有 DOM。
+  - 封面轮廓用主渲染器画到 render target 再读回像素（小游戏开不了第二个 WebGL 上下文）。
+  - 触屏：左右半屏迈步；按住一边 = 草原里转向；横向拖动 = 转头看磨（`input.ts`）。蜃楼提示是可点的"奔向它"按钮（网页版的提示现在也可以点，手机网页终于能冲刺）。
+  - 右上角卡片放在微信胶囊按钮下面（`getMenuButtonBoundingClientRect`）。
+- **字体**：小游戏的画布用不了系统宋体，所以打包了思源宋体（Noto Serif SC，OFL）的子集 + 马善政"拉磨"两字，都是 TTF（`minigame/fonts/`，约 110 KB）。**改了任何玩家能看到的文字后，跑 `node tools/minigame/fonts.mjs` 重新子集化**（开发时从 Google Fonts 下载，运行时不联网）；缺字会退回系统字体。
+- **测试**：本机没有真机，用 `tools/minigame/sim.html` 在浏览器里模拟微信环境跑打包后的 game.js（`python3 -m http.server 5300` 起在仓库根目录，开 `/tools/minigame/sim.html?debug`，`__mill` 是 App）。它会藏掉 window/document/fetch 等、删掉 TextDecoder、去掉 Web Audio 的 convolver 和 stereo panner，能抓到大部分"用了浏览器 API"的问题，**但替代不了真机**：WebGL2 兼容性、性能、字体加载、声音都要扫码在手机上看。
+- 声音跟随 iPhone 静音开关（微信默认）：开着静音就没声音，这是有意保留的，不用 `obeyMuteSwitch: false` 盖过去。
+- 微信 Web Audio 没有 convolver / stereo panner（文档确认），`audio.ts` 退回延迟混响、不做声像；`connect()` 不能链式写（用 `link()`），声音出任何错只会静音、不会卡住游戏。
+- **着色器里不要写倒过来的 `smoothstep(大, 小, x)`**（GLSL 规定结果未定义）：浏览器能算对，iPhone 微信上会出 NaN，表现为画面里飘的黑点。写成 `1.0 - smoothstep(小, 大, x)`。`pow` 的底数也要保证 ≥ 0。
+- 测试阶段，小游戏出错会把错误直接显示在屏幕上（`minigame/main.ts` 的 `report`，含字体没生效、声音没启动）；上线前要关掉或改成只记日志。
+- 真机：iPhone 16 已跑通（普通模式下：画面、字体、声音、触屏都正常；高性能模式见上）。待办：完整玩一局看后期卡不卡、发不发烫；安卓试一台；性能不够再降（像素比 1.5 → 1.25、关 bloom）；备案截图按竖屏界面重拍。
 - 名称建议：「拉磨」；被占用则「拉磨与草原」，简称「拉磨」。介绍文案：一圈，又一圈。选一头牛、马或驴，绕着磨盘拉磨，磨出的面粉用来升级磨坊和风景。地平线上偶尔浮现草原——奔向它，也许能挣脱绳子。
 - 头像：候选在 `~/Desktop/拉磨图标/`（用 `tools/shots/icon.mjs` 在游戏里摆拍渲染）。用户喜欢的方向：驴头特写（正面夕阳光，`head-donkey-front`）、驴拉磨构图（`mill-donkey-7oclock` 等）。还没最终定。
-- 备案截图与各场景描述文案在 `~/Desktop/拉磨图标/备案截图/`。**这些是网页版横屏截图**；小游戏版做好后要按新界面重拍。
+- 备案截图与各场景描述文案在 `~/Desktop/拉磨图标/备案截图/`。**这些是网页版横屏截图**；小游戏版要按竖屏界面重拍。
+- 小红书：只查到"小红书小程序"资料（需主体认证 + 工信部备案），没找到"小游戏"公开接入文档，待用户在后台确认是否支持 WebGL 小游戏。
 
 ## 图标 / 摆拍的经验
 
@@ -32,15 +49,13 @@
 
 This file is the project's memory. Read it before working; update it when a decision is made or something non-obvious is learned. Keep it short and current — delete what is no longer true.
 
-This file is the project's memory. Read it before working; update it when a decision is made or something non-obvious is learned. Keep it short and current — delete what is no longer true.
-
 ## 边界（不做的事）
 
 - 纯静态前端，无服务器、无账号、无排行榜、无联机、无内购。
 - 不引入物理引擎、不引入 UI 框架（React 等）。
 - 第三方素材只用 CC0（字体可以用 SIL OFL），并在此记录来源。场景、磨、树由几何体程序化生成；声音由 Web Audio 合成。
-- **素材来源**：`public/models/*.glb` 是 Quaternius「Ultimate Animated Animal Pack」（CC0，经 poly.pizza 下载）：horse、horse-white、donkey、ox（原为 Bull，代码里改成黄牛色）。只保留了 Idle / Walk / Gallop / Eating 四套动画（用 `tools/shots/slim.mjs`，依赖装在临时目录）。
-- **字体**：封面标题"拉磨"用马善政楷书（Ma Shan Zheng，SIL OFL 1.1，Google Fonts），只裁出这两个字（`public/fonts/mashanzheng-lamo.woff2`，约 2 KB），授权文本在 `public/fonts/OFL-MaShanZheng.txt`。其余文字仍用系统宋体（用户觉得现在的字体就不错）。
+- **素材来源**：`public/models/*.glb` 是 Quaternius「Ultimate Animated Animal Pack」（CC0，经 poly.pizza 下载）：horse、horse-white、donkey、ox（原为 Bull，代码里改成黄牛色）。只保留了 Idle / Walk / Gallop / Eating 四套动画（用 `tools/shots/slim.mjs`，再用 `shrink.mjs` 清残留并量化网格，四个共约 940 KB；依赖装在临时目录）。
+- **字体**：小游戏另带思源宋体（Noto Serif SC，SIL OFL 1.1）子集，授权在 `minigame/fonts/OFL-NotoSerifSC.txt`。封面标题"拉磨"用马善政楷书（Ma Shan Zheng，SIL OFL 1.1，Google Fonts），只裁出这两个字（`public/fonts/mashanzheng-lamo.woff2`，约 2 KB），授权文本在 `public/fonts/OFL-MaShanZheng.txt`。其余文字仍用系统宋体（用户觉得现在的字体就不错）。
 - 桌面端优先；手机端只保证"点左右半屏迈步"能玩，布局有基础适配。
 
 ## 调性
@@ -55,7 +70,7 @@ This file is the project's memory. Read it before working; update it when a deci
 - 渲染：WebGLRenderer + NeutralToneMapping + EffectComposer（RenderPass → UnrealBloomPass → OutputPass）。bloom 的阈值过渡要宽（`smoothWidth` 0.35）：默认 0.01 时阈值等亮线会变成光晕的硬边，低太阳周围出现过钟形/抛物线状光晕。天空渐变不要用 `sqrt(高度)`（地平线处斜率无穷大，会把光晕拉成钟形）。
 - 天空是自写渐变着色器（`world/sky.ts`），不用 three 的 Preetham Sky：为了让地平线颜色 == 雾色，远山无缝融入。
 - 环境光照：PMREM 从天空单独渲染（`Yard.refreshEnvironment`），调色变化后节流刷新。
-- 存档：localStorage，`mill.run.v1`（当前一局）、`mill.meta.v1`（已获自由的动物）。读写都 try/catch。
+- 存档：经 `platform` 存（网页 localStorage、小游戏 `wx.setStorageSync`），`mill.run.v1`（当前一局）、`mill.meta.v1`（已获自由的动物）。读写都 try/catch。
 
 ## 已定的设计决定
 
@@ -79,14 +94,19 @@ This file is the project's memory. Read it before working; update it when a deci
 ```
 src/
   config.ts      所有数值与文案（动物、经济、节奏、蜃楼概率、台词）
-  main.ts        启动、渲染循环、模式切换（title / mill / freedom）、dev URL 参数
+  platform.ts    平台差异：存档、时间、声音、读文件、画质
+  app.ts         两端共用：模式切换（title / mill / freedom）、渲染（bloom）
+  main.ts        网页入口：DOM、键鼠、dev URL 参数
   game.ts        拉磨玩法：步调、转圈、面粉、升级、蜃楼调度、冲刺与保底
   freedom.ts     结局草原（独立 Scene，草地随相机无限平铺）
-  ui.ts          DOM 覆盖层（标题、HUD、提示、结局）；游戏代码不直接碰 DOM
+  ui-api.ts      GameUi 接口（游戏只认这个）
+  ui.ts          网页的 DOM 覆盖层（标题、HUD、提示、结局）
+  canvas-ui/     小游戏的画布 UI：ui.ts（同样的界面，画在 2D 画布上）、paint.ts、overlay.ts
+  minigame/      小游戏入口 main.ts、polyfill（TextDecoder 等）、wx 类型
   audio.ts       Web Audio 合成音效（class Sound）
-  input.ts       键盘 / 指针 → Intent
+  input.ts       键盘 / 鼠标 / 触屏 → Intent
   save.ts        存档
-  util.ts        随机数、插值、地形高度函数
+  util.ts        随机数、插值、地形高度函数、fitFov
   world/
     yard.ts      磨坊场景总装：天空、光、雾、地、磨、粒子、蜃楼；调色过渡
     palette.ts   5 档景色调色板，按景等级连续插值
@@ -95,6 +115,8 @@ src/
     mirage.ts    蜃楼（含倒影），清晰度随失败次数提高
     models.ts    加载动物模型；Animal（单个实例 + 动画）、Rider（第一人称身体）、封面轮廓
     particles.ts 尘 / 花粉 / 萤火、花瓣
+minigame/        小游戏包里的静态文件（game.json、project.config.json、字体）
+tools/minigame/  fonts.mjs（字体子集化）、sim.html（浏览器里模拟微信环境）
 ```
 
 ## 数值（config.ts）
@@ -125,7 +147,6 @@ src/
 
 ## 已知待办 / 想法
 
-- 手机端：HUD 布局更紧凑、触屏提示文案（小游戏版会一并解决）。
 - 已获自由的动物可以再做成"图鉴"。
 - 封面在有存档时，动物轮廓会挡住磨。
 - 自由草原：可以加天黑、星空、和同伴并肩跑等后续。

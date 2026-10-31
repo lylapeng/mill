@@ -1,24 +1,8 @@
 import { ANIMALS, LEVELS_PER_TIER, TEXT, type AnimalId } from './config';
+import { ORDINAL, formatJin, type EndingOptions, type GameUi, type Mask, type TitleOptions, type UpgradeInfo } from './ui-api';
 import { damp } from './util';
 
-// DOM overlay. Built once; game code calls these methods and never touches the DOM.
-
-export interface UpgradeInfo {
-  name: string;
-  level: number;
-  /** 0..LEVELS_PER_TIER-1: how far into the current tier */
-  step: number;
-  cost: number | null;
-  /** flour / cost, clamped to 0..1 */
-  progress: number;
-  /** the tier the next level opens, if it opens one */
-  nextTier: string | null;
-}
-
-export interface EndingStat {
-  value: string;
-  label: string;
-}
+// DOM overlay for the web page. Built once; game code calls these methods and never touches the DOM.
 
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = '') => {
   const el = document.createElement(tag);
@@ -39,12 +23,14 @@ const SOUND_OFF = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3
 
 const CHEVRON = `<svg viewBox="0 0 14 22" aria-hidden="true"><path d="M3 3l8 8-8 8"/></svg>`;
 
-const ORDINAL = ['一', '二', '三', '四', '五'];
-
-export function formatJin(n: number) {
-  if (n >= 1e8) return (n / 1e8).toFixed(2) + ' 亿';
-  if (n >= 1e4) return (n / 1e4).toFixed(n >= 1e5 ? 1 : 2) + ' 万';
-  return n < 100 ? n.toFixed(1) : Math.floor(n).toString();
+/** A mask as an image URL, for CSS mask-image. */
+function maskUrl(m: Mask) {
+  const canvas = document.createElement('canvas');
+  canvas.width = m.width;
+  canvas.height = m.height;
+  const ctx = canvas.getContext('2d')!;
+  ctx.putImageData(new ImageData(new Uint8ClampedArray(m.data), m.width, m.height), 0, 0);
+  return canvas.toDataURL('image/png');
 }
 
 function stats(s: { power: number; speed: number; will?: number }) {
@@ -73,7 +59,7 @@ interface Card {
 
 type Notice = { kind: 'line'; text: string; seconds: number } | { kind: 'tier'; label: string; name: string; line: string };
 
-export class Ui {
+export class Ui implements GameUi {
   private root = h('div', 'ui');
   private title = h('section', 'title');
   private hud = h('section', 'hud hidden');
@@ -100,6 +86,7 @@ export class Ui {
 
   onUpgrade: (kind: 'mill' | 'scene') => void = () => {};
   onMute: () => void = () => {};
+  onDash: () => void = () => {};
 
   constructor(parent: HTMLElement) {
     parent.appendChild(this.root);
@@ -167,20 +154,19 @@ export class Ui {
     }
 
     this.promptEl.append(h('div', 'prompt-q', TEXT.miragePrompt), h('div', 'prompt-a', TEXT.mirageAction));
+    // without a keyboard, the prompt itself is the way to run
+    this.promptEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.onDash();
+    });
+    this.promptEl.addEventListener('pointerdown', (e) => e.stopPropagation());
     this.hud.append(h('div', 'scrim'), this.hintL, this.hintR, stats, upgrades, steps, this.muteBtn);
     this.root.append(this.hud, this.notices, this.promptEl, this.title, this.ending, this.flashEl);
   }
 
   // ── title ────────────────────────────────────────────────────────────
 
-  showTitle(opts: {
-    /** side-on silhouettes (image URLs) */
-    portraits: Record<AnimalId, string>;
-    current: AnimalId | null;
-    freed: AnimalId[];
-    onPick: (a: AnimalId) => void;
-    onContinue: () => void;
-  }) {
+  showTitle(opts: TitleOptions) {
     this.title.replaceChildren();
     this.title.classList.remove('hidden', 'leaving');
 
@@ -212,7 +198,7 @@ export class Ui {
     for (const a of Object.values(ANIMALS)) {
       const el = h('button', 'portrait');
       const sil = h('span', 'sil');
-      sil.style.setProperty('--img', `url(${opts.portraits[a.id]})`);
+      sil.style.setProperty('--img', `url(${maskUrl(opts.portraits[a.id])})`);
       const shade = h('span', 'sil-shade');
       shade.append(sil);
       el.append(shade, h('span', 'portrait-name', a.name));
@@ -390,7 +376,7 @@ export class Ui {
 
   // ── ending ───────────────────────────────────────────────────────────
 
-  showEnding(opts: { animal: AnimalId; stats: EndingStat[]; onAgain: () => void }) {
+  showEnding(opts: EndingOptions) {
     this.ending.replaceChildren();
     this.ending.classList.remove('hidden');
     const at = (el: HTMLElement, s: number) => {

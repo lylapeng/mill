@@ -376,7 +376,7 @@ button {
   opacity: 0;
   transition: opacity 0.8s ease, transform 0.8s ease;
 }
-.prompt.in { opacity: 1; transform: translate(-50%, 0); }
+.prompt.in { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; cursor: pointer; }
 .prompt-q { font-size: var(--fs-l); letter-spacing: var(--track-l); color: var(--ink-2); }
 .prompt-a { margin-top: 12px; font-size: var(--fs-m); letter-spacing: var(--track-l); color: var(--gold); animation: breathe 2.4s ease-in-out infinite; }
 

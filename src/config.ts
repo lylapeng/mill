@@ -129,6 +129,10 @@ export const TEXT = {
   title: '拉磨',
   subtitle: '一圈，又一圈。地平线上，偶尔有草原。',
   controls: 'A / D 交替迈步　·　空格 奔向草原　·　1 / 2 升级　·　M 静音',
+  /** the same, for a phone */
+  touchControls: '左右两边交替点屏幕，迈步',
+  touchMirageAction: '奔向它',
+  touchEndingHint: '按住屏幕左边或右边，随便跑',
   millTierLines: [
     '',
     '磨上搭了个亭子。下雨也能拉了。',

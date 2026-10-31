@@ -1,0 +1,111 @@
+<!doctype html>
+<!--
+  A stand-in for the WeChat mini game runtime, to try dist-minigame/game.js in a browser.
+  Serve the repo root statically (python3 -m http.server 5300) and open
+  http://localhost:5300/tools/minigame/sim.html — use a phone-sized window.
+  `wx` maps onto browser APIs; window, document, fetch etc. are hidden from the game,
+  TextDecoder and AbortController are removed and Web Audio loses its convolver and stereo panner, so the
+  game has to get by on what the mini game offers. Not a substitute for a real phone.
+  ?notch=0 drops the iPhone-style safe area and menu button; ?debug exposes the App as __mill.
+-->
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+      canvas { display: block; touch-action: none; }
+      /* where WeChat draws its menu button */
+      .capsule { position: fixed; border: 1px solid rgba(255,255,255,.5); border-radius: 16px; background: rgba(0,0,0,.25); pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <script type="module">
+      const root = '../../dist-minigame/';
+      const q = new URLSearchParams(location.search);
+      const notch = q.get('notch') !== '0';
+      const W = innerWidth, H = innerHeight;
+      const portrait = H > W;
+      const safe = !notch ? { top: 0, left: 0, right: W, bottom: H }
+        : portrait ? { top: 47, left: 0, right: W, bottom: H - 34 } : { top: 0, left: 47, right: W - 47, bottom: H - 21 };
+      const menu = { width: 87, height: 32, right: W - 7, top: notch && portrait ? 51 : 8 };
+      Object.assign(menu, { left: menu.right - menu.width, bottom: menu.top + menu.height });
+      if (notch) {
+        const cap = document.createElement('div');
+        cap.className = 'capsule';
+        Object.assign(cap.style, { left: menu.left + 'px', top: menu.top + 'px', width: menu.width + 'px', height: menu.height + 'px' });
+        document.body.append(cap);
+      }
+
+      let first = true;
+      const touchCbs = { start: [], move: [], end: [], cancel: [] };
+      const fonts = {};
+      for (const f of ['noto-serif-sc', 'mashanzheng-lamo']) {
+        const face = new FontFace('wx-' + f, `url(${root}fonts/${f}.ttf)`);
+        await face.load();
+        document.fonts.add(face);
+        fonts[`fonts/${f}.ttf`] = 'wx-' + f;
+      }
+      const touch = (e) => ({ identifier: e.pointerId, clientX: e.clientX, clientY: e.clientY });
+
+      const wx = {
+        getWindowInfo: () => ({ windowWidth: W, windowHeight: H, pixelRatio: devicePixelRatio, safeArea: { ...safe, width: safe.right - safe.left, height: safe.bottom - safe.top } }),
+        getSystemInfoSync: () => wx.getWindowInfo(),
+        getMenuButtonBoundingClientRect: () => menu,
+        createCanvas() {
+          const c = document.createElement('canvas');
+          if (first) {
+            first = false;
+            c.style.width = W + 'px';
+            c.style.height = H + 'px';
+            document.body.prepend(c);
+            const send = (kind) => (e) => {
+              if (kind === 'start') c.setPointerCapture(e.pointerId);
+              for (const cb of touchCbs[kind]) cb({ touches: [], changedTouches: [touch(e)] });
+            };
+            c.addEventListener('pointerdown', send('start'));
+            c.addEventListener('pointermove', (e) => e.buttons && send('move')(e));
+            c.addEventListener('pointerup', send('end'));
+            c.addEventListener('pointercancel', send('cancel'));
+          }
+          return c;
+        },
+        onTouchStart: (cb) => touchCbs.start.push(cb),
+        onTouchMove: (cb) => touchCbs.move.push(cb),
+        onTouchEnd: (cb) => touchCbs.end.push(cb),
+        onTouchCancel: (cb) => touchCbs.cancel.push(cb),
+        getFileSystemManager: () => ({
+          readFile({ filePath, success, fail }) {
+            fetch(root + filePath).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(r.status))))
+              .then((data) => success({ data }), (e) => fail({ errMsg: String(e) }));
+          },
+        }),
+        getStorageSync: (k) => localStorage.getItem('wxsim.' + k) ?? '',
+        setStorageSync: (k, v) => localStorage.setItem('wxsim.' + k, v),
+        removeStorageSync: (k) => localStorage.removeItem('wxsim.' + k),
+        createWebAudioContext() {
+          const ctx = new AudioContext();
+          ctx.createConvolver = undefined;
+          ctx.createStereoPanner = undefined;
+          return ctx;
+        },
+        loadFont: (path) => fonts[path] ?? null,
+        onShow: (cb) => document.addEventListener('visibilitychange', () => !document.hidden && cb()),
+        onHide: (cb) => document.addEventListener('visibilitychange', () => document.hidden && cb()),
+        setKeepScreenOn: () => {},
+      };
+
+      window.wx = wx;
+      window.GameGlobal = window;
+      window.__millDebug = q.has('debug');
+      // missing in the mini game; the game polyfills these itself
+      delete window.TextDecoder;
+      delete window.AbortController;
+      delete window.AbortSignal;
+      const code = await (await fetch(root + 'game.js')).text();
+      const hidden = ['window', 'document', 'self', 'navigator', 'localStorage', 'sessionStorage', 'fetch', 'XMLHttpRequest', 'AudioContext', 'Image', 'OffscreenCanvas', 'createImageBitmap', 'Path2D',
+        'HTMLImageElement', 'HTMLCanvasElement', 'ImageBitmap', 'ImageData', 'VideoFrame', 'Blob', 'URL', 'Worker', 'requestIdleCallback'];
+      new Function(...hidden, '"use strict";\n' + code)();
+    </script>
+  </body>
+</html>

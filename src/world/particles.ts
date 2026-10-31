@@ -30,7 +30,7 @@ uniform float uOpacity;
 varying float vBlink;
 void main() {
   float d = length(gl_PointCoord - 0.5);
-  float a = smoothstep(0.5, 0.0, d);
+  float a = 1.0 - smoothstep(0.0, 0.5, d);
   a = mix(a * 0.35, a * (0.15 + 0.85 * vBlink * vBlink), uGlow);
   gl_FragColor = vec4(uColor * (1.0 + uGlow * 2.5), a * uOpacity);
 }`;
@@ -62,7 +62,7 @@ void main() {
   float s = sin(vSpin), co = cos(vSpin);
   c = mat2(co, -s, s, co) * c;
   c.x *= 2.2 * (0.6 + 0.4 * abs(sin(vSpin * 0.7)));
-  float a = smoothstep(0.5, 0.35, length(c));
+  float a = 1.0 - smoothstep(0.35, 0.5, length(c));
   if (a < 0.01) discard;
   gl_FragColor = vec4(uColor * (0.9 + 0.2 * c.y), a * uOpacity);
 }`;

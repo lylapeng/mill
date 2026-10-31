@@ -5,6 +5,7 @@ import { Mirage } from './mirage';
 import { Particles } from './particles';
 import { makePalette, samplePalette, sceneLevelToT, type Palette } from './palette';
 import { Sky } from './sky';
+import { platform } from '../platform';
 import { damp } from '../util';
 
 // The mill yard: sky, light, land, mill, particles and the mirage, kept in one scene.
@@ -31,14 +32,18 @@ export class Yard {
   private envDirty = true;
   private envCooldown = 0;
 
-  constructor(renderer: THREE.WebGLRenderer) {
+  /** `environment` false skips the sky-lit environment map (it needs float render targets) */
+  constructor(
+    renderer: THREE.WebGLRenderer,
+    private environment = true,
+  ) {
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.scene.fog = this.fog;
     this.scene.add(this.sky.mesh, this.land.group, this.mill.group, this.mirage.group, this.particles.group);
     this.scene.add(this.hemi, this.sun, this.sun.target, this.camera);
 
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.setScalar(platform.quality.shadowMapSize);
     const s = this.sun.shadow.camera;
     s.left = -22;
     s.right = 22;
@@ -107,7 +112,7 @@ export class Yard {
       this.applyPalette();
     }
     this.envCooldown -= dt;
-    if (this.envDirty && this.envCooldown <= 0) {
+    if (this.environment && this.envDirty && this.envCooldown <= 0) {
       this.refreshEnvironment();
       this.envCooldown = 0.6;
     }
