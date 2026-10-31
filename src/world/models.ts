@@ -223,8 +223,8 @@ export function silhouettes(): Record<AnimalId, string> {
   renderer.setClearColor(0x000000, 0);
   const scene = new THREE.Scene();
   const ink = new THREE.MeshBasicMaterial({ color: '#ffffff' });
-  // 2.9 m across, feet on the bottom edge
-  const span = 2.9, tall = (span * h) / w;
+  // 3.5 m across, feet on the bottom edge; tall enough for the horse's ears (HEIGHT.horse)
+  const span = 3.5, tall = (span * h) / w;
   const camera = new THREE.OrthographicCamera(-span / 2, span / 2, tall - 0.06, -0.06, 0.1, 20);
   camera.position.set(0, 0, 10);
   const out = {} as Record<AnimalId, string>;
