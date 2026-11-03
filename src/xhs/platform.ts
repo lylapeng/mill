@@ -11,7 +11,13 @@ interface MiniTool {
   setStorage?(o: { key: string; data: string }): Promise<unknown>;
   removeStorage?(o: { key: string }): Promise<unknown>;
   getWindowInfo?(): Promise<WindowInfo>;
+  /** client 9.51+ */
+  getFollowStatus?(): Promise<{ follow_status: FollowStatus }>;
+  followAuthor?(): Promise<{ follow_status: FollowStatus }>;
 }
+
+/** -1 failed, 0 not following (or logged out), 1 following, 2 you are the author */
+export type FollowStatus = -1 | 0 | 1 | 2;
 
 interface Rect { left: number; top: number; right: number; bottom: number; width: number; height: number }
 export interface WindowInfo {
@@ -33,7 +39,7 @@ declare global {
 export const miniTool = (): MiniTool | undefined => window.xhs?.miniTool;
 
 /** client version as 9462 for 9.46.2; 0 when unknown (a plain browser) */
-async function clientVersion() {
+export async function clientVersion() {
   const read = (o?: { miniToolEnv?: { buildVersion?: number | string } }) => Math.floor((Number(o?.miniToolEnv?.buildVersion) || 0) / 1000);
   const sync = read(window.xhs?.launchOptions);
   if (sync) return sync;

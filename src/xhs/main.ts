@@ -4,7 +4,9 @@ import { App } from '../app';
 import { CanvasUi } from '../canvas-ui/ui';
 import { Input } from '../input';
 import { setPlatform } from '../platform';
+import { loadPrefs, savePrefs } from '../save';
 import { loadModels } from '../world/models';
+import { Follow } from './follow';
 import { createPlatform, miniTool, type WindowInfo } from './platform';
 
 // The Xiaohongshu mini tool: the WeChat version's portrait canvas UI drawn over the 3D
@@ -92,8 +94,11 @@ async function boot() {
   uiCanvas.style.width = `${w}px`;
   uiCanvas.style.height = `${h}px`;
   document.body.append(uiCanvas);
-  const ui = new CanvasUi(uiCanvas, () => document.createElement('canvas'), fonts);
+  const ui = new CanvasUi(uiCanvas, () => document.createElement('canvas'), fonts, true);
   ui.resize(w, h, Math.min(dpr, 3), safe, reserved);
+  ui.hand = loadPrefs().hand;
+  ui.onHand = (hand) => savePrefs({ ...loadPrefs(), hand });
+  const follow = new Follow();
   const input = new Input();
   let app: App | null = null;
 
@@ -103,7 +108,8 @@ async function boot() {
     e.preventDefault();
     if (ui.tap(e.clientX, e.clientY)) return;
     walking.add(e.pointerId);
-    input.pointerDown(e.pointerId, e.clientX / w);
+    // one-handed, the hoof buttons decide which foot; elsewhere a finger only looks
+    input.pointerDown(e.pointerId, e.clientX / w, ui.hand === 'both' ? undefined : ui.stepSide(e.clientX, e.clientY));
   });
   canvas.addEventListener('pointermove', (e) => {
     if (walking.has(e.pointerId)) input.pointerMove(e.pointerId, e.clientX / w);
@@ -164,6 +170,7 @@ async function boot() {
     const dt = Math.min(0.05, elapsed);
     last = now;
     watch(elapsed);
+    follow.tick(dt);
     if (app) app.frame(dt);
     else renderer.clear();
     ui.draw(dt);
@@ -171,7 +178,9 @@ async function boot() {
   requestAnimationFrame(loop);
 
   try {
-    await loadModels();
+    // the follow check gets a moment, not a say: the game starts without it
+    const quietly = Promise.race([follow.init(), new Promise((r) => setTimeout(r, 2500))]).catch(() => undefined);
+    await Promise.all([loadModels(['stag']), quietly]);
   } catch (err) {
     console.error(err);
     ui.loaded();
@@ -179,6 +188,9 @@ async function boot() {
     return;
   }
   app = new App(renderer, ui, input);
+  app.roster = () => follow.roster();
+  // twenty seconds in, on the title: the stag steps in without waiting for the next visit
+  follow.onOffer = () => app?.refreshTitle();
   app.resize(w, h, pr);
   app.showTitle();
   ui.loaded();

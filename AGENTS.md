@@ -50,6 +50,9 @@
 - 清晰度：3D 最高 2 倍像素比（受约 200 万像素预算限制），界面画布是叠在上面的独立 DOM 画布、按屏幕原生像素比（最高 3）画，所以字是锐的（小游戏只有一张画布，才需要把界面贴进 3D）。像素比取 `devicePixelRatio` 与容器 `getWindowInfo().pixelRatio` 的较大者。自动降档前 6 秒不计（编译着色器那几秒会被误判成卡）。第一版只有 1.5 倍、界面也跟着 1.5 倍，用户在小红书里看着"糊"。
 - 影子：用户在小红书真机上看到地上的影子有锯齿、跟着磨杆扫过时"飘"。原因推测是手机 GPU 对阴影的硬件过滤少，1024 的阴影贴图在低太阳（流霞景 4°）下每格在地上拉长到半米多。小红书版改成 2048 + `shadowRadius: 3`（`Quality.shadowRadius`，可选，网页和微信仍是默认 1）。本机 Mac GPU 上复现不出来，**还没在真机上确认改好了**；如果还有，把太阳最低仰角抬高（会改变黄昏的光感）或阴影相机跟随镜头。
 - `?debug` 时 `window.__mill` = App（截图用）。上架截图在 `~/Desktop/拉磨图标/小红书截图/`（1170×2532，用打包后的 dist-xhs 拍）。
+- **关注解锁「鹿」**（文档 §3.15，客户端 9.51+，`src/xhs/follow.ts`）。平台规则：使用满 20 秒后才能引导关注；每人每天最多拉起 3 次（平台自己上限 10 次）；不能用关注卡住流程或存档；弹窗要清楚；用户关掉后不能接着再弹。做法：鹿一开始就在封面上（灰色，「关注后解锁」），但前 20 秒点开只显示「再待一会儿，就可以解锁」，累计使用满 20 秒后按钮当场出现（不用重开）；只在玩家点「关注作者 · 解锁」时调用 `followAuthor`，旁边有同样大小的「算了」；关掉（20002）就什么都不做；3 次用完显示「今天先到这里，明天再来」。启动时静默查 `getFollowStatus`，已关注直接解锁；解锁后永久保留，取关也不收回。是否支持看两个方法在不在：读得到版本号且低于 9.51 才算不支持（第一版要求必须读到 ≥ 9.51，上传预览里鹿一直不出现，原因未确认）。不支持时整个入口隐藏。试过一个隐藏诊断（连点标题 5 下显示接口情况），用户在真机上没看到字，已删掉；接口在真机上通没通，**还没确认**。鹿的数值和马相同（不用重跑经济模拟），模型只在小红书包里（`xhs/models/stag.glb`），网页和微信不加载。
+- 以后的解锁候选：独角兽（白马模型 + 程序化的角，挂在 `Head` 骨骼上；能和蜃楼里的白马接上）。
+- **单手模式**（用户建议，目前只在小红书版开：`CanvasUi` 第 4 个参数）。封面底部选「双手 / 单手 · 左 / 单手 · 右」，拉磨时静音按钮旁的圆钮可以循环切换，选择存在 `mill.prefs.v1`。单手时两只蹄子并排放在那一侧的下角（`hooves()`、`stepSide()`），仍要交替点、保留踉跄；步调条在蹄子上方，「奔向它」挪到拇指够得着的地方，草原里按住左蹄/右蹄转向。点在蹄子以外的手指只用来转头看。右上角的升级卡片没动（左手够不着，升级不常点）。微信版审核通过后要开，改一个参数即可。
 - 可以以后加的容器能力：`postNote`（把画面截图发成笔记）、排行榜/云存储（内测，会让游戏联网）。
 
 ## 图标 / 摆拍的经验
@@ -67,7 +70,7 @@ This file is the project's memory. Read it before working; update it when a deci
 - 纯静态前端，无服务器、无账号、无排行榜、无联机、无内购。
 - 不引入物理引擎、不引入 UI 框架（React 等）。
 - 第三方素材只用 CC0（字体可以用 SIL OFL），并在此记录来源。场景、磨、树由几何体程序化生成；声音由 Web Audio 合成。
-- **素材来源**：`public/models/*.glb` 是 Quaternius「Ultimate Animated Animal Pack」（CC0，经 poly.pizza 下载）：horse、horse-white、donkey、ox（原为 Bull，代码里改成黄牛色）。只保留了 Idle / Walk / Gallop / Eating 四套动画（用 `tools/shots/slim.mjs`，再用 `shrink.mjs` 清残留并量化网格，四个共约 940 KB；依赖装在临时目录）。
+- **素材来源**：`public/models/*.glb` 是 Quaternius「Ultimate Animated Animal Pack」（CC0，经 poly.pizza 下载）：horse、horse-white、donkey、ox（原为 Bull，代码里改成黄牛色）；小红书版另有 `xhs/models/stag.glb`（Quaternius「Stag」，CC0，poly.pizza/m/tQdzbZ1Cmw，同样裁剪，约 260 KB）。只保留了 Idle / Walk / Gallop / Eating 四套动画（用 `tools/shots/slim.mjs`，再用 `shrink.mjs` 清残留并量化网格，四个共约 940 KB；依赖装在临时目录）。
 - **字体**：小游戏另带思源宋体（Noto Serif SC，SIL OFL 1.1）子集，授权在 `minigame/fonts/OFL-NotoSerifSC.txt`。封面标题"拉磨"用马善政楷书（Ma Shan Zheng，SIL OFL 1.1，Google Fonts），只裁出这两个字（`public/fonts/mashanzheng-lamo.woff2`，约 2 KB），授权文本在 `public/fonts/OFL-MaShanZheng.txt`。其余文字仍用系统宋体（用户觉得现在的字体就不错）。
 - 桌面端优先；手机端只保证"点左右半屏迈步"能玩，布局有基础适配。
 
@@ -126,11 +129,11 @@ src/
     land.ts      地面、远山、树、草、花、篱笆、房子（按等级"长出来"）
     mill.ts      5 档磨（石磨→木架磨→铜轮磨→蒸汽磨→星辉磨），只加不减
     mirage.ts    蜃楼（含倒影），清晰度随失败次数提高
-    models.ts    加载动物模型；Animal（单个实例 + 动画）、Rider（第一人称身体）、封面轮廓
+    models.ts    加载动物模型（入口可多要，如小红书的鹿）；Animal、Rider（第一人称身体）、封面轮廓
     particles.ts 尘 / 花粉 / 萤火、花瓣
-  xhs/           小红书小工具入口 main.ts、platform.ts（存档、包内文件）、compat.ts
+  xhs/           小红书小工具入口 main.ts、platform.ts（存档、包内文件）、follow.ts（关注解锁鹿）、compat.ts
 minigame/        小游戏包里的静态文件（game.json、project.config.json、字体）
-xhs/             小红书包里的静态文件（index.html、style.css、WOFF2 字体）
+xhs/             小红书包里的静态文件（index.html、style.css、WOFF2 字体、鹿的模型）
 tools/minigame/  fonts.mjs（字体子集化）、sim.html（浏览器里模拟微信环境）
 ```
 

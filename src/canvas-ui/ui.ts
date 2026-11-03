@@ -1,5 +1,7 @@
 import { ANIMALS, LEVELS_PER_TIER, TEXT, type AnimalId } from '../config';
-import { ORDINAL, formatJin, type EndingOptions, type GameUi, type Mask, type TitleOptions, type UpgradeInfo } from '../ui-api';
+import {
+  ORDINAL, formatJin, type EndingOptions, type GameUi, type Hand, type LockedAnimal, type Mask, type TitleOptions, type UpgradeInfo,
+} from '../ui-api';
 import { damp } from '../util';
 import {
   GOLD, GOLD_SOFT, HOOF, INK, INK_2, INK_3, LINE, Painter, SPEAKER, TRACK_L, TRACK_S,
@@ -53,6 +55,10 @@ export class CanvasUi implements GameUi {
   onUpgrade: (kind: Kind) => void = () => {};
   onMute: () => void = () => {};
   onDash: () => void = () => {};
+  /** the player picked where the hooves go */
+  onHand: (hand: Hand) => void = () => {};
+  /** both hooves under one thumb, or one under each */
+  hand: Hand = 'both';
 
   private ctx: CanvasRenderingContext2D;
   private p: Painter;
@@ -75,6 +81,9 @@ export class CanvasUi implements GameUi {
   private pickedAt = NEVER;
   private tints = new Map<string, HTMLCanvasElement>();
   private masks = new Map<AnimalId, HTMLCanvasElement>();
+  /** waiting on the follow dialog; a line to show in place of the blurb */
+  private asking = false;
+  private lockedLine = '';
 
   private hud = new Fade(1.4);
   private flour = 0;
@@ -108,6 +117,8 @@ export class CanvasUi implements GameUi {
     /** scratch canvases for the tinted silhouettes */
     private createCanvas: () => HTMLCanvasElement,
     fonts: { serif: string; title: string },
+    /** offer one-handed play (title row and a HUD button) */
+    private hands = false,
   ) {
     this.ctx = canvas.getContext('2d')!;
     this.p = new Painter(this.ctx, fonts.serif, fonts.title);
@@ -144,6 +155,25 @@ export class CanvasUi implements GameUi {
     return false;
   }
 
+  /**
+   * Which hoof a touch at (x, y) presses: the half of the screen with two hands; one-handed,
+   * the hoof button under it, or null off them (that finger only looks).
+   */
+  stepSide(x: number, y: number): 'L' | 'R' | null {
+    if (this.hand === 'both') return x < this.w / 2 ? 'L' : 'R';
+    const f = this.hooves();
+    const reach = f.r + 26;
+    if (Math.abs(y - f.cy) > reach || x < f.L - reach || x > f.R + reach) return null;
+    return x < (f.L + f.R) / 2 ? 'L' : 'R';
+  }
+
+  private setHand(hand: Hand) {
+    if (hand === this.hand) return;
+    this.hand = hand;
+    this.onHand(hand);
+    this.dirty = true;
+  }
+
   private get compact() {
     return Math.min(this.w, this.h) < 500;
   }
@@ -157,11 +187,16 @@ export class CanvasUi implements GameUi {
   // ── GameUi ───────────────────────────────────────────────────────────
 
   showTitle(opts: TitleOptions) {
-    this.titleOpts = opts;
-    this.picked = null;
+    // a copy: unlocking moves the locked animal into the herd
+    // shown again while up (the herd grew): keep what's picked
+    const again = this.titleOpts !== null && this.title.target > 0;
+    const offered = [...opts.animals, ...(opts.locked ? [opts.locked.id] : [])];
+    this.titleOpts = { ...opts };
+    if (!again || !this.picked || !offered.includes(this.picked)) this.picked = null;
+    this.lockedLine = '';
     this.title.value = this.title.target = 1;
     for (const id of Object.keys(opts.portraits) as AnimalId[]) {
-      if (!this.masks.has(id)) this.masks.set(id, this.maskCanvas(opts.portraits[id]));
+      if (!this.masks.has(id)) this.masks.set(id, this.maskCanvas(opts.portraits[id]!));
     }
     this.dirty = true;
   }
@@ -338,11 +373,14 @@ export class CanvasUi implements GameUi {
     return this.p.text(s, x, y, { lift: true, ...style });
   }
 
+  private pillWidth(label: string) {
+    return this.p.measure(label, { size: 15, track: TRACK_L }) + 64;
+  }
+
   /** A rounded pill button centred at (cx, cy). Returns its height. */
   private pill(label: string, cx: number, cy: number, fn: (() => void) | null, color = INK, border = LINE) {
     const style = { size: 15, track: TRACK_L, color, align: 'center' as const };
-    const tw = this.p.measure(label, style);
-    const pw = tw + 64, ph = 42;
+    const pw = this.pillWidth(label), ph = 42;
     this.p.panel(cx - pw / 2, cy - ph / 2, pw, ph, ph / 2, border);
     this.text(label, cx, cy, style);
     if (fn) this.hit(cx - pw / 2 - 8, cy - ph / 2 - 8, pw + 16, ph + 16, fn);
@@ -415,27 +453,34 @@ export class CanvasUi implements GameUi {
     const sub = { size: 15, track: TRACK_S, color: INK_2, align: 'center' as const };
     this.p.wrap(TEXT.subtitle, w - 40, sub).forEach((line, i) => this.text(line, w / 2, top + hero * 1.05 + 20 + i * 24, sub));
 
-    // bottom, stacked upward: controls, detail, herd, continue
+    // bottom, stacked upward: hands, controls, detail, herd, continue
     let y = h - safe.bottom - Math.max(16, h * 0.04);
+    if (this.hands) {
+      this.paintHandChoice(y - 8, !leaving);
+      y -= 32;
+    }
     const controls = { size: 12, track: 0.12, color: INK_3, align: 'center' as const };
-    this.text(TEXT.touchControls, w / 2, y - 6, controls);
+    this.text(this.hand === 'both' ? TEXT.touchControls : TEXT.oneHandControls, w / 2, y - 6, controls);
     y -= 18;
 
     const detailH = this.compact ? 116 : 132;
     if (this.picked) this.paintDetail(this.picked, y - detailH, opts);
     y -= detailH + 10;
 
+    const locked = opts.locked;
+    const ids = locked ? [...opts.animals, locked.id] : opts.animals;
+    const n = ids.length;
     const gap = this.compact ? 6 : 22;
-    const pw = Math.min(210, (w - 32 - safe.left - safe.right - gap * 2) / 3);
+    const pw = Math.min(210, (w - 32 - safe.left - safe.right - gap * (n - 1)) / n);
     const ph = pw * 0.625;
     const nameSize = this.fsL;
-    const freedAny = opts.freed.length > 0;
-    const herdH = ph + 8 + nameSize + (freedAny ? 18 : 0);
+    const noteLine = opts.freed.length > 0 || !!locked;
+    const herdH = ph + 8 + nameSize + (noteLine ? 18 : 0);
     const herdTop = y - herdH;
-    const ids: AnimalId[] = ['ox', 'horse', 'donkey'];
     ids.forEach((id, i) => {
-      const x = w / 2 + (i - 1) * (pw + gap) - pw / 2;
+      const x = w / 2 + (i - (n - 1) / 2) * (pw + gap) - pw / 2;
       const isPicked = this.picked === id;
+      const isLocked = locked?.id === id;
       const dim = this.picked && !isPicked;
       ctx.save();
       ctx.globalAlpha *= dim ? 0.5 : 1;
@@ -447,20 +492,24 @@ export class CanvasUi implements GameUi {
         ctx.shadowBlur = 8;
         ctx.shadowOffsetY = 1;
       }
-      ctx.drawImage(this.tinted(id, isPicked ? GOLD : INK_2), x, herdTop, pw, ph);
+      ctx.drawImage(this.tinted(id, isPicked ? GOLD : isLocked ? INK_3 : INK_2), x, herdTop, pw, ph);
       ctx.restore();
       ctx.save();
       ctx.globalAlpha *= dim ? 0.5 : 1;
       this.text(ANIMALS[id].name, x + pw / 2, herdTop + ph + 8 + nameSize / 2, {
         size: nameSize, track: TRACK_L, color: isPicked ? GOLD : INK_2, align: 'center',
       });
-      if (opts.freed.includes(id))
+      if (isLocked)
+        this.text(TEXT.lockedNote, x + pw / 2, herdTop + ph + 8 + nameSize + 12, { size: 12, track: TRACK_S, color: INK_3, align: 'center' });
+      else if (opts.freed.includes(id))
         this.text('曾走进草原', x + pw / 2, herdTop + ph + 8 + nameSize + 12, { size: 12, track: TRACK_S, color: GOLD, align: 'center' });
       ctx.restore();
       if (!leaving)
         this.hit(x, herdTop - 6, pw, herdH + 6, () => {
+          if (this.picked === id) return;
           this.picked = id;
           this.pickedAt = this.t;
+          this.lockedLine = '';
         });
     });
     y = herdTop - 8;
@@ -474,6 +523,25 @@ export class CanvasUi implements GameUi {
     ctx.globalAlpha = 1;
   }
 
+  /** 双手 · 单手·左 · 单手·右, the current one in gold */
+  private paintHandChoice(cy: number, live: boolean) {
+    const order: Hand[] = ['both', 'left', 'right'];
+    const style = { size: 13, track: TRACK_S };
+    const gap = 26;
+    const widths = order.map((hand) => this.p.measure(TEXT.hands[hand], style));
+    let x = this.w / 2 - (widths.reduce((a, b) => a + b, 0) + gap * (order.length - 1)) / 2;
+    order.forEach((hand, i) => {
+      const on = this.hand === hand;
+      this.text(TEXT.hands[hand], x, cy, { ...style, color: on ? GOLD : INK_3 });
+      if (on) {
+        this.ctx.fillStyle = GOLD_SOFT;
+        this.ctx.fillRect(x, cy + 11, widths[i], 1);
+      }
+      if (live) this.hit(x - gap / 2, cy - 16, widths[i] + gap, 32, () => this.setHand(hand));
+      x += widths[i] + gap;
+    });
+  }
+
   private paintDetail(id: AnimalId, top: number, opts: TitleOptions) {
     const { ctx, w } = this;
     const a = ANIMALS[id];
@@ -481,8 +549,9 @@ export class CanvasUi implements GameUi {
     const base = ctx.globalAlpha;
     ctx.globalAlpha = base * k;
     const y0 = top + (1 - k) * 6;
+    const locked = opts.locked?.id === id ? opts.locked : null;
     const blurb = { size: 15, track: TRACK_S, color: INK_2, align: 'center' as const };
-    const lines = this.p.wrap(a.blurb, w - 40, blurb);
+    const lines = this.p.wrap(locked && this.lockedLine ? this.lockedLine : a.blurb, w - 40, blurb);
     lines.forEach((line, i) => this.text(line, w / 2, y0 + 10 + i * 22, blurb));
     let y = y0 + 10 + (lines.length - 1) * 22 + 28;
 
@@ -509,8 +578,45 @@ export class CanvasUi implements GameUi {
       x += cellW + 18;
     }
     y += 22 + 21;
-    this.pill('开始拉磨', w / 2, y, k > 0.3 && this.title.target > 0 ? () => opts.onPick(id) : null);
+    const live = k > 0.3 && this.title.target > 0;
+    if (locked) this.paintUnlock(locked, y, live, opts);
+    else this.pill('开始拉磨', w / 2, y, live ? () => opts.onPick(id) : null);
     ctx.globalAlpha = base;
+  }
+
+  /** Follow to unlock, beside an equal way out; or, when asking isn't possible, just say why. */
+  private paintUnlock(locked: LockedAnimal, cy: number, live: boolean, opts: TitleOptions) {
+    const { w } = this;
+    const can = locked.canAsk();
+    if (can !== 'yes') {
+      this.text(can === 'soon' ? TEXT.followSoon : TEXT.followLimit, w / 2, cy, { size: 13, track: TRACK_S, color: INK_3, align: 'center' });
+      return;
+    }
+    const gap = 12;
+    const fw = this.pillWidth(TEXT.followAction), lw = this.pillWidth(TEXT.followLater);
+    const x0 = w / 2 - (fw + gap + lw) / 2;
+    const ready = live && !this.asking;
+    this.pill(TEXT.followAction, x0 + fw / 2, cy, ready ? () => this.ask(locked, opts) : null, GOLD, GOLD_SOFT);
+    this.pill(TEXT.followLater, x0 + fw + gap + lw / 2, cy, ready ? () => {
+      this.picked = null;
+      this.lockedLine = '';
+    } : null, INK_2);
+  }
+
+  private ask(locked: LockedAnimal, opts: TitleOptions) {
+    this.asking = true;
+    this.lockedLine = '';
+    void locked.unlock().then((result) => {
+      this.asking = false;
+      this.dirty = true;
+      if (result === 'ok') {
+        // it joins the herd where it stood, already picked: the button becomes 开始拉磨
+        opts.animals = [...opts.animals, locked.id];
+        opts.locked = undefined;
+        this.pickedAt = this.t;
+      } else if (result === 'error') this.lockedLine = TEXT.followFailed;
+      // closed: leave it be, no asking again; limit: canAsk() now says so
+    });
   }
 
   // ── HUD ──────────────────────────────────────────────────────────────
@@ -570,6 +676,21 @@ export class CanvasUi implements GameUi {
     this.ctx.stroke();
     this.paintSpeaker(cx - 9, cy - 9, 18, this.muted ? INK_3 : INK_2);
     this.hit(cx - r - 8, cy - r - 8, r * 2 + 16, r * 2 + 16, () => this.onMute());
+
+    // where the hooves go: 双 → 右 → 左, round again
+    if (!this.hands) return;
+    const hx = cx + r * 2 + 12;
+    this.p.circle(hx, cy, r);
+    this.ctx.fillStyle = 'rgba(30, 25, 20, 0.42)';
+    this.ctx.fill();
+    this.ctx.strokeStyle = LINE;
+    this.ctx.stroke();
+    this.text({ both: '双', left: '左', right: '右' }[this.hand], hx, cy, { size: 13, color: INK_2, align: 'center' });
+    this.hit(hx - r - 6, cy - r - 8, r * 2 + 14, r * 2 + 16, () => {
+      const next: Hand = this.hand === 'both' ? 'right' : this.hand === 'right' ? 'left' : 'both';
+      this.setHand(next);
+      this.toast(TEXT.hands[next], 1.6);
+    });
   }
 
   private paintSpeaker(x: number, y: number, size: number, color: string) {
@@ -668,45 +789,64 @@ export class CanvasUi implements GameUi {
     return y - 10;
   }
 
-  /** A hoof under each thumb, the cadence between them. */
+  /** Where the hooves sit: one in each bottom corner, or side by side under one thumb. */
+  private hooves() {
+    const { w, h, safe } = this;
+    const one = this.hand !== 'both';
+    const r = one ? 30 : 22;
+    const cy = h - safe.bottom - (this.compact ? 20 : 28) - r - (one ? 10 : 0);
+    if (!one) return { r, cy, L: safe.left + this.pad + r, R: w - safe.right - this.pad - r };
+    // the outer hoof in the corner, the inner one a short sweep of the thumb away
+    const span = 2 * r + 18;
+    if (this.hand === 'right') {
+      const R = w - safe.right - this.pad - r;
+      return { r, cy, L: R - span, R };
+    }
+    const L = safe.left + this.pad + r;
+    return { r, cy, L, R: L + span };
+  }
+
+  private paintHoof(side: 'L' | 'R', cx: number, cy: number, r: number) {
+    const ctx = this.ctx;
+    const k = progress(this.t, this.hitAt[side], 0.3);
+    // squeeze to 0.88 at 40%, back by the end; gold at the deepest point
+    const deep = k < 1 ? (k < 0.4 ? k / 0.4 : 1 - (k - 0.4) / 0.6) : 0;
+    const scale = 1 - 0.12 * deep;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(scale, scale);
+    this.p.circle(0, 0, r);
+    ctx.fillStyle = 'rgba(30, 25, 20, 0.42)';
+    ctx.fill();
+    ctx.strokeStyle = deep > 0.5 ? GOLD : LINE;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    if (side === 'R') ctx.scale(-1, 1);
+    const icon = r * 0.9;
+    this.p.svg(HOOF, -icon / 2, -icon / 2, icon);
+    ctx.globalAlpha *= 0.85;
+    ctx.fillStyle = deep > 0.5 ? GOLD : INK_2;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /** The hooves and the cadence: between them with two hands, above them with one. */
   private paintSteps() {
-    const { ctx, w, h, safe } = this;
-    const r = 22;
-    const cy = h - safe.bottom - (this.compact ? 20 : 28) - r;
+    const { ctx, w } = this;
+    const f = this.hooves();
     const s = progress(this.t, this.shakeAt, 0.35);
     const shake = s < 1 ? Math.sin(s * Math.PI * 2) * -4 : 0;
-    const left = safe.left + this.pad + r + shake;
-    const right = w - safe.right - this.pad - r + shake;
-
-    for (const side of ['L', 'R'] as const) {
-      const cx = side === 'L' ? left : right;
-      const k = progress(this.t, this.hitAt[side], 0.3);
-      // squeeze to 0.88 at 40%, back by the end; gold at the deepest point
-      const deep = k < 1 ? (k < 0.4 ? k / 0.4 : 1 - (k - 0.4) / 0.6) : 0;
-      const scale = 1 - 0.12 * deep;
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.scale(scale, scale);
-      this.p.circle(0, 0, r);
-      ctx.fillStyle = 'rgba(30, 25, 20, 0.42)';
-      ctx.fill();
-      ctx.strokeStyle = deep > 0.5 ? GOLD : LINE;
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      if (side === 'R') ctx.scale(-1, 1);
-      this.p.svg(HOOF, -10, -10, 20);
-      ctx.globalAlpha *= 0.85;
-      ctx.fillStyle = deep > 0.5 ? GOLD : INK_2;
-      ctx.fill();
-      ctx.restore();
-    }
+    this.paintHoof('L', f.L + shake, f.cy, f.r);
+    this.paintHoof('R', f.R + shake, f.cy, f.r);
 
     // cadence: a thin bar that turns gold once the rhythm is steady
-    const bw = Math.min(150, right - left - 2 * r - 40);
-    const bx = w / 2 - bw / 2 + shake;
-    const by = cy + 6;
+    const one = this.hand !== 'both';
+    const bw = one ? f.R - f.L + 2 * f.r : Math.min(150, f.R - f.L - 2 * f.r - 40);
+    const mid = (one ? (f.L + f.R) / 2 : w / 2) + shake;
+    const bx = mid - bw / 2;
+    const by = one ? f.cy - f.r - 16 : f.cy + 6;
     const steady = this.cadenceTarget > 0.75;
-    this.text(steady ? '步调　稳' : '步调', w / 2 + shake, by - 16, { size: 12, track: TRACK_L, color: steady ? GOLD : INK_3, align: 'center' });
+    this.text(steady ? '步调　稳' : '步调', mid, by - 16, { size: 12, track: TRACK_L, color: steady ? GOLD : INK_3, align: 'center' });
     this.p.roundRect(bx, by - 1.5, bw, 3, 1.5);
     ctx.fillStyle = 'rgba(251, 246, 236, 0.16)';
     ctx.fill();
@@ -812,7 +952,15 @@ export class CanvasUi implements GameUi {
     this.text(TEXT.miragePrompt, w / 2, y, { size: this.fsL, track: TRACK_L, color: INK_2, align: 'center' });
     const breathe = 1 - 0.45 * (0.5 - 0.5 * Math.cos((this.t / 2.4) * Math.PI * 2));
     ctx.globalAlpha = k * breathe;
-    this.pill(TEXT.touchMirageAction, w / 2, y + 48, this.promptFade.target > 0 ? () => this.onDash() : null, GOLD, GOLD_SOFT);
+    // one-handed, the button waits above the hooves, within the thumb's reach
+    let bx = w / 2, by = y + 48;
+    if (this.hand !== 'both') {
+      const f = this.hooves();
+      const half = this.pillWidth(TEXT.touchMirageAction) / 2;
+      bx = Math.max(this.safe.left + this.pad + half, Math.min(w - this.safe.right - this.pad - half, (f.L + f.R) / 2));
+      by = f.cy - f.r - 16 - 16 - 44;
+    }
+    this.pill(TEXT.touchMirageAction, bx, by, this.promptFade.target > 0 ? () => this.onDash() : null, GOLD, GOLD_SOFT);
     ctx.globalAlpha = 1;
   }
 
@@ -881,12 +1029,20 @@ export class CanvasUi implements GameUi {
       });
       this.text(this.endingDate, w / 2, y + 24 + 16 + gridH + 16 + 6 + dy, { size: 12, track: 0.2, color: INK_3, align: 'center' });
     }
-    y = split ? h - this.safe.bottom - 40 - 16 - 42 - 12 : y + keepH + 30;
+    // one-handed, the hooves steer here too; the button moves up out of their way
+    const one = this.hand !== 'both';
+    const lift = one ? this.hooves().r * 2 + 24 : 0;
+    y = split ? h - this.safe.bottom - 40 - 16 - 42 - 12 - lift : y + keepH + 30;
 
     dy = rise(13);
     this.pill('再活一次', w / 2, y + 21 + dy, since > 13 ? opts.onAgain : null);
     y += 42 + 16;
-    this.text(TEXT.touchEndingHint, w / 2, y + 6 + dy, { size: 12, track: TRACK_S, color: INK_3, align: 'center' });
+    this.text(one ? TEXT.oneHandEndingHint : TEXT.touchEndingHint, w / 2, y + 6 + dy, { size: 12, track: TRACK_S, color: INK_3, align: 'center' });
+    if (one) {
+      const f = this.hooves();
+      this.paintHoof('L', f.L, f.cy, f.r);
+      this.paintHoof('R', f.R, f.cy, f.r);
+    }
     ctx.globalAlpha = 1;
   }
 }

@@ -27,9 +27,26 @@ export interface Mask {
   data: Uint8Array;
 }
 
+/** where the hooves sit on a touch screen: one under each thumb, or both under one */
+export type Hand = 'both' | 'left' | 'right';
+
+/** what pressing the unlock button came to */
+export type UnlockResult = 'ok' | 'closed' | 'limit' | 'error';
+
+/** An animal shown on the title but not yet playable (the stag, until you follow). */
+export interface LockedAnimal {
+  id: AnimalId;
+  /** 'soon' in the first seconds of play (asking isn't allowed yet), 'limit' once today's asks are used */
+  canAsk: () => 'yes' | 'soon' | 'limit';
+  unlock: () => Promise<UnlockResult>;
+}
+
 export interface TitleOptions {
   /** side-on silhouettes */
-  portraits: Record<AnimalId, Mask>;
+  portraits: Partial<Record<AnimalId, Mask>>;
+  /** the ones to offer, in order */
+  animals: AnimalId[];
+  locked?: LockedAnimal;
   current: AnimalId | null;
   freed: AnimalId[];
   onPick: (a: AnimalId) => void;

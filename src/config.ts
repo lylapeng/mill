@@ -1,7 +1,7 @@
 // All tunable numbers and player-facing text live here.
 // Pacing was tuned with a simple simulation (see AGENTS.md → 数值).
 
-export type AnimalId = 'ox' | 'horse' | 'donkey';
+export type AnimalId = 'ox' | 'horse' | 'donkey' | 'stag';
 
 export interface AnimalDef {
   id: AnimalId;
@@ -54,7 +54,23 @@ export const ANIMALS: Record<AnimalId, AnimalDef> = {
     freedomBonus: 0.004,
     stats: { power: 2, speed: 2, will: 3 },
   },
+  // Xiaohongshu only, unlocked by following the author; paced like the horse so the
+  // economy needs no new simulation
+  stag: {
+    id: 'stag',
+    name: '鹿',
+    blurb: '从林子里走出来的。步子轻，角很沉。',
+    stepPower: 0.9,
+    drag: 1.6,
+    maxSpeed: 2.2,
+    strength: 0.9,
+    freedomBonus: 0,
+    stats: { power: 1, speed: 3 },
+  },
 };
+
+/** the animals every version offers */
+export const BASE_ANIMALS: AnimalId[] = ['ox', 'horse', 'donkey'];
 
 export const WALK_RADIUS = 3.1;
 export const MAX_LEVEL = 20;
@@ -133,6 +149,17 @@ export const TEXT = {
   touchControls: '左右两边交替点屏幕，迈步',
   touchMirageAction: '奔向它',
   touchEndingHint: '按住屏幕左边或右边，随便跑',
+  /** one-handed: both hooves under one thumb */
+  oneHandControls: '拇指交替点两只蹄子，迈步',
+  oneHandEndingHint: '按住左蹄或右蹄，随便跑',
+  hands: { both: '双手', left: '单手 · 左', right: '单手 · 右' },
+  /** the stag, before following */
+  lockedNote: '关注后解锁',
+  followAction: '关注作者 · 解锁',
+  followLater: '算了',
+  followSoon: '再待一会儿，就可以解锁',
+  followLimit: '今天先到这里，明天再来',
+  followFailed: '没连上，稍后再试',
   millTierLines: [
     '',
     '磨上搭了个亭子。下雨也能拉了。',

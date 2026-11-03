@@ -17,10 +17,14 @@ const FILES: Record<Breed, string> = {
   horse: 'models/horse.glb',
   whiteHorse: 'models/horse-white.glb',
   donkey: 'models/donkey.glb',
+  // ships only in the Xiaohongshu package
+  stag: 'models/stag.glb',
 };
+/** what every version loads; an entry point asks for more */
+const BASE_BREEDS: Breed[] = ['ox', 'horse', 'whiteHorse', 'donkey'];
 // a real gap between them, so the yard looks different from each back: the donkey is
-// a head shorter than the ox, the horse a head taller
-const HEIGHT: Record<Breed, number> = { ox: 1.65, horse: 2.05, whiteHorse: 2.05, donkey: 1.2 };
+// a head shorter than the ox, the horse a head taller. The stag's is to its antler tips.
+const HEIGHT: Record<Breed, number> = { ox: 1.65, horse: 2.05, whiteHorse: 2.05, donkey: 1.2, stag: 2.1 };
 /** the ox model is a black bull; ours is a yellow-brown working ox */
 const RECOLOUR: Partial<Record<Breed, Record<string, string>>> = {
   ox: { Main: '#7a4a2a', Main_Light: '#b58a5e', Muzzle: '#c9ab8a' },
@@ -33,10 +37,10 @@ interface Template {
 }
 const templates = new Map<Breed, Template>();
 
-export async function loadModels() {
+export async function loadModels(extra: Breed[] = []) {
   const loader = new GLTFLoader();
   await Promise.all(
-    (Object.keys(FILES) as Breed[]).map(async (breed) => {
+    [...BASE_BREEDS, ...extra].map(async (breed) => {
       const gltf = await loader.parseAsync(await platform.readFile(FILES[breed]), '');
       const recolour = RECOLOUR[breed];
       gltf.scene.traverse((o) => {
@@ -57,6 +61,8 @@ export async function loadModels() {
     }),
   );
 }
+
+export const hasModel = (breed: Breed) => templates.has(breed);
 
 /** One animal: its own skeleton, its own animation mixer. */
 export class Animal {
@@ -124,6 +130,7 @@ const RIDE: Record<AnimalId, THREE.Vector3> = {
   horse: new THREE.Vector3(0, -0.44, -0.82),
   donkey: new THREE.Vector3(0, -0.4, -1.15),
   ox: new THREE.Vector3(0, -0.72, -1.25),
+  stag: new THREE.Vector3(0, -0.7, -1.3),
 };
 
 /**
@@ -213,11 +220,11 @@ export class Rider {
 }
 
 /**
- * Side-on silhouettes of the three animals, mid-stride, as white masks.
+ * Side-on silhouettes of the animals, mid-stride, as white masks.
  * All share one scale, so the donkey stands smaller than the horse. Drawn with the
  * game's own renderer into a render target (the mini game can't open a second context).
  */
-export function silhouettes(renderer: THREE.WebGLRenderer): Record<AnimalId, Mask> {
+export function silhouettes(renderer: THREE.WebGLRenderer, kinds: AnimalId[]): Partial<Record<AnimalId, Mask>> {
   // twice the size it is shown at, so scaling down smooths the edges
   const w = 960, h = 600;
   const target = new THREE.WebGLRenderTarget(w, h);
@@ -232,8 +239,8 @@ export function silhouettes(renderer: THREE.WebGLRenderer): Record<AnimalId, Mas
   renderer.setClearColor(0x000000, 0);
   renderer.setRenderTarget(target);
   const pixels = new Uint8Array(w * h * 4);
-  const out = {} as Record<AnimalId, Mask>;
-  for (const kind of ['ox', 'horse', 'donkey'] as AnimalId[]) {
+  const out: Partial<Record<AnimalId, Mask>> = {};
+  for (const kind of kinds) {
     const a = new Animal(kind);
     a.setMaterial(ink);
     a.play('Walk');
