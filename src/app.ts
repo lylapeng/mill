@@ -8,11 +8,11 @@ import { Freedom } from './freedom';
 import { MillGame } from './game';
 import type { Input } from './input';
 import { loadMeta, loadRun, newRun, saveMeta, saveRun, type RunState } from './save';
-import { formatJin, type GameUi } from './ui-api';
-import { tierOf } from './config';
+import { formatJin, type GameUi, type LockedAnimal } from './ui-api';
+import { ANIMALS, BASE_ANIMALS, tierOf, type AnimalId } from './config';
 import './world/flat-normals';
 import { Yard } from './world/yard';
-import { silhouettes } from './world/models';
+import { hasModel, silhouettes } from './world/models';
 import { fitFov } from './util';
 
 // The game as a whole: title → mill → grassland, shared by the web page and the mini game.
@@ -34,6 +34,8 @@ export class App {
   private titleAngle = 0;
   private titleRadius = 8;
   private size = { w: 1, h: 1, pr: 1 };
+  /** what the title offers; an entry point can add to it (the stag) */
+  roster: () => { animals: AnimalId[]; locked?: LockedAnimal; fresh?: AnimalId } = () => ({ animals: BASE_ANIMALS });
 
   constructor(
     private renderer: THREE.WebGLRenderer,
@@ -43,7 +45,7 @@ export class App {
     renderer.toneMapping = THREE.NeutralToneMapping;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.portraits = silhouettes(renderer);
+    this.portraits = silhouettes(renderer, (Object.keys(ANIMALS) as AnimalId[]).filter(hasModel));
     const floatTargets = renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float');
     this.yard = new Yard(renderer, floatTargets);
 
@@ -110,8 +112,19 @@ export class App {
     // bigger mills need a wider shot to stay clear of the title
     this.titleRadius = 8 + tierOf(run?.millLevel ?? 1) * 1.1;
     this.ui.showHud(false);
+    this.offerTitle();
+  }
+
+  /** The roster changed (the stag is on offer now): show it, if the title is up. */
+  refreshTitle() {
+    if (this.mode === 'title') this.offerTitle();
+  }
+
+  private offerTitle() {
+    const run = loadRun();
     this.ui.showTitle({
       portraits: this.portraits,
+      ...this.roster(),
       current: run?.animal ?? null,
       freed: this.meta.freed,
       onPick: (a) => this.startRun(newRun(a)),

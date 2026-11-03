@@ -5,7 +5,9 @@ import { CanvasUi } from '../canvas-ui/ui';
 import { Overlay } from '../canvas-ui/overlay';
 import { Input } from '../input';
 import { setPlatform, type Platform } from '../platform';
+import { loadPrefs, savePrefs } from '../save';
 import { loadModels } from '../world/models';
+import { roster } from './stag';
 
 // The WeChat mini game: one on-screen canvas (WebGL2), the UI painted on a second one,
 // touch input, wx storage and files. Everything ships in the package; nothing is fetched.
@@ -72,9 +74,11 @@ function start(gl: WebGL2RenderingContext) {
     title: loaded.title ? `"${loaded.title}"` : 'serif',
   };
   const uiCanvas = wx.createCanvas();
-  const ui = new CanvasUi(uiCanvas, () => wx.createCanvas(), fonts, '拉磨的日子');
+  const ui = new CanvasUi(uiCanvas, () => wx.createCanvas(), fonts, '拉磨的日子', true);
   const uiPr = Math.min(info.pixelRatio, 2);
   ui.resize(w, h, uiPr, safe, menu ? menu.bottom : 0);
+  ui.hand = loadPrefs().hand;
+  ui.onHand = (hand) => savePrefs({ ...loadPrefs(), hand });
   const overlay = new Overlay(uiCanvas);
   const input = new Input();
   let app: App | null = null;
@@ -88,7 +92,8 @@ function start(gl: WebGL2RenderingContext) {
       try {
         if (ui.tap(t.clientX, t.clientY)) continue;
         touches.add(t.identifier);
-        input.pointerDown(t.identifier, t.clientX / w);
+        // one-handed, only the hoof button steps; elsewhere a finger only looks
+        input.pointerDown(t.identifier, t.clientX / w, ui.hand === 'both' ? undefined : ui.stepSide(t.clientX, t.clientY));
       } catch (err) {
         report(err);
       }
@@ -152,9 +157,10 @@ function start(gl: WebGL2RenderingContext) {
   };
   requestAnimationFrame(loop);
 
-  loadModels().then(
+  loadModels(['stag']).then(
     () => {
       app = new App(renderer, ui, input);
+      app.roster = roster;
       app.sound.onFail = report;
       app.resize(w, h, Math.min(info.pixelRatio, platform.quality.maxPixelRatio));
       app.showTitle();

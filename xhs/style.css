@@ -1,0 +1,45 @@
+/* Both fonts are SIL OFL 1.1 subsets; the build prepends their licence texts here
+   (the package can't carry .txt files). */
+@font-face {
+  font-family: 'Mill Serif';
+  src: url('./fonts/noto-serif-sc.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Mill Title';
+  src: url('./fonts/mashanzheng-lamo.woff2') format('woff2');
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; background: #1c1814; }
+body {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+}
+canvas { display: block; touch-action: none; }
+.ui-layer { position: fixed; top: 0; left: 0; pointer-events: none; }
+
+/* read by the script for safe-area insets: the simulator sets the variables, phones env() */
+.safe-probe {
+  position: fixed;
+  visibility: hidden;
+  padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  padding-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+  padding-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  padding-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+}
+
+.message {
+  position: fixed;
+  top: 0; right: 0; bottom: 0; left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(28, 24, 20, 0.92);
+  color: rgba(251, 246, 236, 0.7);
+  font: 15px/1.9 'Mill Serif', serif;
+  text-align: center;
+}

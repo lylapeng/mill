@@ -1,7 +1,7 @@
 // All tunable numbers and player-facing text live here.
 // Pacing was tuned with a simple simulation (see AGENTS.md → 数值).
 
-export type AnimalId = 'ox' | 'horse' | 'donkey';
+export type AnimalId = 'ox' | 'horse' | 'donkey' | 'stag';
 
 export interface AnimalDef {
   id: AnimalId;
@@ -54,7 +54,23 @@ export const ANIMALS: Record<AnimalId, AnimalDef> = {
     freedomBonus: 0.004,
     stats: { power: 2, speed: 2, will: 3 },
   },
+  // not in the web version: unlocked by following the author (Xiaohongshu) or by the
+  // first freedom (WeChat); paced like the horse so the economy needs no new simulation
+  stag: {
+    id: 'stag',
+    name: '鹿',
+    blurb: '从林子里走出来的。步子轻，角很沉。',
+    stepPower: 0.9,
+    drag: 1.6,
+    maxSpeed: 2.2,
+    strength: 0.9,
+    freedomBonus: 0,
+    stats: { power: 1, speed: 3 },
+  },
 };
+
+/** the animals every version offers */
+export const BASE_ANIMALS: AnimalId[] = ['ox', 'horse', 'donkey'];
 
 export const WALK_RADIUS = 3.1;
 export const MAX_LEVEL = 20;
@@ -133,6 +149,22 @@ export const TEXT = {
   touchControls: '左右两边交替点屏幕，迈步',
   touchMirageAction: '奔向它',
   touchEndingHint: '按住屏幕左边或右边，随便跑',
+  /** one-handed: a single hoof under the thumb */
+  oneHandControls: '拇指一下一下点蹄子，迈步',
+  oneHandEndingHint: '按住蹄子往左往右拖，随便跑',
+  hands: { both: '双手', left: '单手 · 左', right: '单手 · 右' },
+  /** the stag, before following */
+  lockedNote: '关注后解锁',
+  followAction: '关注作者 · 解锁',
+  followLater: '算了',
+  followSoon: '再待一会儿，就可以解锁',
+  followLimit: '今天先到这里，明天再来',
+  followFailed: '没连上，稍后再试',
+  /** the stag on WeChat: it comes by itself once some animal has reached the grassland */
+  freedLockedNote: '自由后解锁',
+  freedLockedHint: '等你第一次走进草原，它就会来。',
+  /** under a newcomer's name, the first time the cover shows it */
+  freshNote: '新来的',
   millTierLines: [
     '',
     '磨上搭了个亭子。下雨也能拉了。',

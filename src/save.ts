@@ -1,5 +1,6 @@
 import type { AnimalId } from './config';
 import { platform } from './platform';
+import type { Hand } from './ui-api';
 
 export interface RunState {
   animal: AnimalId;
@@ -19,8 +20,14 @@ export interface MetaState {
   freed: AnimalId[];
 }
 
+/** settings that outlive a run */
+export interface Prefs {
+  hand: Hand;
+}
+
 const RUN_KEY = 'mill.run.v1';
 const META_KEY = 'mill.meta.v1';
+const PREFS_KEY = 'mill.prefs.v1';
 
 export const newRun = (animal: AnimalId): RunState => ({
   animal,
@@ -34,7 +41,7 @@ export const newRun = (animal: AnimalId): RunState => ({
   mirageFails: 0,
 });
 
-function read<T>(key: string): T | null {
+export function read<T>(key: string): T | null {
   try {
     const raw = platform.load(key);
     return raw ? (JSON.parse(raw) as T) : null;
@@ -43,7 +50,7 @@ function read<T>(key: string): T | null {
   }
 }
 
-function write(key: string, value: unknown) {
+export function write(key: string, value: unknown) {
   try {
     platform.store(key, value === null ? null : JSON.stringify(value));
   } catch {
@@ -55,3 +62,5 @@ export const loadRun = () => read<RunState>(RUN_KEY);
 export const saveRun = (run: RunState | null) => write(RUN_KEY, run);
 export const loadMeta = (): MetaState => read<MetaState>(META_KEY) ?? { freed: [] };
 export const saveMeta = (meta: MetaState) => write(META_KEY, meta);
+export const loadPrefs = (): Prefs => ({ hand: 'both', ...read<Partial<Prefs>>(PREFS_KEY) });
+export const savePrefs = (prefs: Prefs) => write(PREFS_KEY, prefs);

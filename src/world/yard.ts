@@ -53,6 +53,7 @@ export class Yard {
     s.far = 160;
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.03;
+    this.sun.shadow.radius = platform.quality.shadowRadius ?? 1;
 
     // the environment map is rendered from a copy of the sky only
     const envSky = new THREE.Mesh(this.sky.mesh.geometry, this.sky.material);

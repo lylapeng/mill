@@ -195,10 +195,10 @@ export class Ui implements GameUi {
       void detail.offsetWidth;
       detail.classList.add('in');
     };
-    for (const a of Object.values(ANIMALS)) {
+    for (const a of opts.animals.map((id) => ANIMALS[id])) {
       const el = h('button', 'portrait');
       const sil = h('span', 'sil');
-      sil.style.setProperty('--img', `url(${maskUrl(opts.portraits[a.id])})`);
+      sil.style.setProperty('--img', `url(${maskUrl(opts.portraits[a.id]!)})`);
       const shade = h('span', 'sil-shade');
       shade.append(sil);
       el.append(shade, h('span', 'portrait-name', a.name));

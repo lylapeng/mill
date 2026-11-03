@@ -3,3 +3,6 @@ dist/
 .DS_Store
 *.local
 dist-minigame/
+.claude/skills/minitool-zip-builder/
+dist-xhs/
+dist-xhs.zip

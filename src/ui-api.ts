@@ -27,9 +27,36 @@ export interface Mask {
   data: Uint8Array;
 }
 
+/** where the hooves sit on a touch screen: one under each thumb, or both under one */
+export type Hand = 'both' | 'left' | 'right';
+
+/** what pressing the unlock button came to */
+export type UnlockResult = 'ok' | 'closed' | 'limit' | 'error';
+
+/**
+ * An animal shown on the title but not yet playable: on Xiaohongshu the stag waits for a
+ * follow (`canAsk` / `unlock`); on WeChat it comes by itself after the first freedom, and
+ * the title only says so (`note`, `hint`).
+ */
+export interface LockedAnimal {
+  id: AnimalId;
+  /** under its name on the cover; default 关注后解锁 */
+  note?: string;
+  /** in place of the unlock buttons when there is nothing to press */
+  hint?: string;
+  /** 'soon' in the first seconds of play (asking isn't allowed yet), 'limit' once today's asks are used */
+  canAsk?: () => 'yes' | 'soon' | 'limit';
+  unlock?: () => Promise<UnlockResult>;
+}
+
 export interface TitleOptions {
   /** side-on silhouettes */
-  portraits: Record<AnimalId, Mask>;
+  portraits: Partial<Record<AnimalId, Mask>>;
+  /** the ones to offer, in order */
+  animals: AnimalId[];
+  locked?: LockedAnimal;
+  /** just joined the herd: the cover greets it, once */
+  fresh?: AnimalId;
   current: AnimalId | null;
   freed: AnimalId[];
   onPick: (a: AnimalId) => void;
