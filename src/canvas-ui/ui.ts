@@ -57,7 +57,7 @@ export class CanvasUi implements GameUi {
   onDash: () => void = () => {};
   /** the player picked where the hooves go */
   onHand: (hand: Hand) => void = () => {};
-  /** both hooves under one thumb, or one under each */
+  /** one hoof under one thumb, or one under each */
   hand: Hand = 'both';
 
   private ctx: CanvasRenderingContext2D;
@@ -157,14 +157,12 @@ export class CanvasUi implements GameUi {
 
   /**
    * Which hoof a touch at (x, y) presses: the half of the screen with two hands; one-handed,
-   * the hoof button under it, or null off them (that finger only looks).
+   * the single hoof ('one') if it lands near it, or null (that finger only looks).
    */
-  stepSide(x: number, y: number): 'L' | 'R' | null {
+  stepSide(x: number, y: number): 'L' | 'R' | 'one' | null {
     if (this.hand === 'both') return x < this.w / 2 ? 'L' : 'R';
-    const f = this.hooves();
-    const reach = f.r + 26;
-    if (Math.abs(y - f.cy) > reach || x < f.L - reach || x > f.R + reach) return null;
-    return x < (f.L + f.R) / 2 ? 'L' : 'R';
+    const f = this.hoof();
+    return Math.hypot(x - f.x, y - f.cy) <= f.r + 26 ? 'one' : null;
   }
 
   private setHand(hand: Hand) {
@@ -789,26 +787,27 @@ export class CanvasUi implements GameUi {
     return y - 10;
   }
 
-  /** Where the hooves sit: one in each bottom corner, or side by side under one thumb. */
+  /** Where the hooves sit with two hands: one in each bottom corner. */
   private hooves() {
     const { w, h, safe } = this;
-    const one = this.hand !== 'both';
-    const r = one ? 30 : 22;
-    const cy = h - safe.bottom - (this.compact ? 20 : 28) - r - (one ? 10 : 0);
-    if (!one) return { r, cy, L: safe.left + this.pad + r, R: w - safe.right - this.pad - r };
-    // the outer hoof in the corner, the inner one a short sweep of the thumb away
-    const span = 2 * r + 18;
-    if (this.hand === 'right') {
-      const R = w - safe.right - this.pad - r;
-      return { r, cy, L: R - span, R };
-    }
-    const L = safe.left + this.pad + r;
-    return { r, cy, L, R: L + span };
+    const r = 22;
+    const cy = h - safe.bottom - (this.compact ? 20 : 28) - r;
+    return { r, cy, L: safe.left + this.pad + r, R: w - safe.right - this.pad - r };
   }
 
-  private paintHoof(side: 'L' | 'R', cx: number, cy: number, r: number) {
+  /** Where the single hoof sits one-handed: in that bottom corner, a little in from the edge. */
+  private hoof() {
+    const { w, h, safe } = this;
+    const r = 34;
+    const cy = h - safe.bottom - (this.compact ? 20 : 28) - r - 10;
+    const inset = this.pad + r + 12;
+    return { r, cy, x: this.hand === 'right' ? w - safe.right - inset : safe.left + inset };
+  }
+
+  /** `side` picks the icon's mirror and which steps press it; 'one' is pressed by both feet. */
+  private paintHoof(side: 'L' | 'R' | 'one', cx: number, cy: number, r: number) {
     const ctx = this.ctx;
-    const k = progress(this.t, this.hitAt[side], 0.3);
+    const k = progress(this.t, side === 'one' ? Math.max(this.hitAt.L, this.hitAt.R) : this.hitAt[side], 0.3);
     // squeeze to 0.88 at 40%, back by the end; gold at the deepest point
     const deep = k < 1 ? (k < 0.4 ? k / 0.4 : 1 - (k - 0.4) / 0.6) : 0;
     const scale = 1 - 0.12 * deep;
@@ -821,7 +820,7 @@ export class CanvasUi implements GameUi {
     ctx.strokeStyle = deep > 0.5 ? GOLD : LINE;
     ctx.lineWidth = 1;
     ctx.stroke();
-    if (side === 'R') ctx.scale(-1, 1);
+    if (side === 'R' || (side === 'one' && this.hand === 'right')) ctx.scale(-1, 1);
     const icon = r * 0.9;
     this.p.svg(HOOF, -icon / 2, -icon / 2, icon);
     ctx.globalAlpha *= 0.85;
@@ -830,21 +829,29 @@ export class CanvasUi implements GameUi {
     ctx.restore();
   }
 
-  /** The hooves and the cadence: between them with two hands, above them with one. */
+  /** The hooves and the cadence: between them with two hands, above the hoof with one. */
   private paintSteps() {
     const { ctx, w } = this;
-    const f = this.hooves();
     const s = progress(this.t, this.shakeAt, 0.35);
     const shake = s < 1 ? Math.sin(s * Math.PI * 2) * -4 : 0;
-    this.paintHoof('L', f.L + shake, f.cy, f.r);
-    this.paintHoof('R', f.R + shake, f.cy, f.r);
+    let bw: number, mid: number, by: number;
+    if (this.hand === 'both') {
+      const f = this.hooves();
+      this.paintHoof('L', f.L + shake, f.cy, f.r);
+      this.paintHoof('R', f.R + shake, f.cy, f.r);
+      bw = Math.min(150, f.R - f.L - 2 * f.r - 40);
+      mid = w / 2 + shake;
+      by = f.cy + 6;
+    } else {
+      const f = this.hoof();
+      this.paintHoof('one', f.x + shake, f.cy, f.r);
+      bw = 2 * f.r + 24;
+      mid = f.x + shake;
+      by = f.cy - f.r - 16;
+    }
 
     // cadence: a thin bar that turns gold once the rhythm is steady
-    const one = this.hand !== 'both';
-    const bw = one ? f.R - f.L + 2 * f.r : Math.min(150, f.R - f.L - 2 * f.r - 40);
-    const mid = (one ? (f.L + f.R) / 2 : w / 2) + shake;
     const bx = mid - bw / 2;
-    const by = one ? f.cy - f.r - 16 : f.cy + 6;
     const steady = this.cadenceTarget > 0.75;
     this.text(steady ? '步调　稳' : '步调', mid, by - 16, { size: 12, track: TRACK_L, color: steady ? GOLD : INK_3, align: 'center' });
     this.p.roundRect(bx, by - 1.5, bw, 3, 1.5);
@@ -955,9 +962,9 @@ export class CanvasUi implements GameUi {
     // one-handed, the button waits above the hooves, within the thumb's reach
     let bx = w / 2, by = y + 48;
     if (this.hand !== 'both') {
-      const f = this.hooves();
+      const f = this.hoof();
       const half = this.pillWidth(TEXT.touchMirageAction) / 2;
-      bx = Math.max(this.safe.left + this.pad + half, Math.min(w - this.safe.right - this.pad - half, (f.L + f.R) / 2));
+      bx = Math.max(this.safe.left + this.pad + half, Math.min(w - this.safe.right - this.pad - half, f.x));
       by = f.cy - f.r - 16 - 16 - 44;
     }
     this.pill(TEXT.touchMirageAction, bx, by, this.promptFade.target > 0 ? () => this.onDash() : null, GOLD, GOLD_SOFT);
@@ -1029,9 +1036,9 @@ export class CanvasUi implements GameUi {
       });
       this.text(this.endingDate, w / 2, y + 24 + 16 + gridH + 16 + 6 + dy, { size: 12, track: 0.2, color: INK_3, align: 'center' });
     }
-    // one-handed, the hooves steer here too; the button moves up out of their way
+    // one-handed, the hoof steers here too; the button moves up out of its way
     const one = this.hand !== 'both';
-    const lift = one ? this.hooves().r * 2 + 24 : 0;
+    const lift = one ? this.hoof().r * 2 + 24 : 0;
     y = split ? h - this.safe.bottom - 40 - 16 - 42 - 12 - lift : y + keepH + 30;
 
     dy = rise(13);
@@ -1039,9 +1046,8 @@ export class CanvasUi implements GameUi {
     y += 42 + 16;
     this.text(one ? TEXT.oneHandEndingHint : TEXT.touchEndingHint, w / 2, y + 6 + dy, { size: 12, track: TRACK_S, color: INK_3, align: 'center' });
     if (one) {
-      const f = this.hooves();
-      this.paintHoof('L', f.L, f.cy, f.r);
-      this.paintHoof('R', f.R, f.cy, f.r);
+      const f = this.hoof();
+      this.paintHoof('one', f.x, f.cy, f.r);
     }
     ctx.globalAlpha = 1;
   }

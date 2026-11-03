@@ -149,9 +149,9 @@ export const TEXT = {
   touchControls: '左右两边交替点屏幕，迈步',
   touchMirageAction: '奔向它',
   touchEndingHint: '按住屏幕左边或右边，随便跑',
-  /** one-handed: both hooves under one thumb */
-  oneHandControls: '拇指交替点两只蹄子，迈步',
-  oneHandEndingHint: '按住左蹄或右蹄，随便跑',
+  /** one-handed: a single hoof under the thumb */
+  oneHandControls: '拇指一下一下点蹄子，迈步',
+  oneHandEndingHint: '按住蹄子往左往右拖，随便跑',
   hands: { both: '双手', left: '单手 · 左', right: '单手 · 右' },
   /** the stag, before following */
   lockedNote: '关注后解锁',

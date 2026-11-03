@@ -108,7 +108,7 @@ async function boot() {
     e.preventDefault();
     if (ui.tap(e.clientX, e.clientY)) return;
     walking.add(e.pointerId);
-    // one-handed, the hoof buttons decide which foot; elsewhere a finger only looks
+    // one-handed, only the hoof button steps; elsewhere a finger only looks
     input.pointerDown(e.pointerId, e.clientX / w, ui.hand === 'both' ? undefined : ui.stepSide(e.clientX, e.clientY));
   });
   canvas.addEventListener('pointermove', (e) => {
