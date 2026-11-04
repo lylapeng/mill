@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { App } from '../app';
 import { CanvasUi } from '../canvas-ui/ui';
 import { Overlay } from '../canvas-ui/overlay';
+import { TEXT } from '../config';
 import { Input } from '../input';
 import { setPlatform, type Platform } from '../platform';
 import { loadPrefs, savePrefs } from '../save';
@@ -28,8 +29,10 @@ const platform: Platform = {
         fail: (err) => reject(new Error(`${path}: ${err.errMsg}`)),
       }),
     ),
-  // phones: render the 3D at most 1.5×, a smaller shadow map, a thinner meadow
-  quality: { maxPixelRatio: 1.5, shadowMapSize: 1024, meadowGrass: 40000 },
+  // phones: render the 3D at most 1.5×, a thinner meadow. The shadow map stays full size: at
+  // 1024 the animal's long evening shadow had stair-stepped edges. A radius of 3 shows three's
+  // sampling noise at this pixel ratio; 2 is smooth without it.
+  quality: { maxPixelRatio: 1.5, shadowMapSize: 2048, shadowRadius: 2, meadowGrass: 40000 },
 };
 setPlatform(platform);
 
@@ -117,6 +120,12 @@ function start(gl: WebGL2RenderingContext) {
   // the audio context is suspended while the game is in the background
   wx.onShow(() => app?.sound.start());
   wx.setKeepScreenOn?.({ keepScreenOn: true });
+  // sharing is off in a mini game until it is switched on: the ··· menu's 转发 / 分享到朋友圈
+  // stay grey without this. The card's picture ships in the package: a screenshot of a WebGL
+  // canvas can come out black.
+  wx.showShareMenu?.({ withShareTicket: false, menus: ['shareAppMessage', 'shareTimeline'] });
+  wx.onShareAppMessage?.(() => ({ title: TEXT.subtitle, imageUrl: 'share.jpg' }));
+  wx.onShareTimeline?.(() => ({ title: `拉磨的日子 · ${TEXT.subtitle}`, imageUrl: 'share.jpg' }));
 
   // Until the game has been on real phones for a while, errors are shown on screen
   // (once each) so they can be read off the phone; the frame loop carries on regardless.

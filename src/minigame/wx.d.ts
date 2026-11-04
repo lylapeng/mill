@@ -27,6 +27,12 @@ declare namespace WechatMinigame {
   interface FileSystemManager {
     readFile(opts: { filePath: string; success: (res: { data: ArrayBuffer }) => void; fail: (err: { errMsg: string }) => void }): void;
   }
+  /** what a share card shows; imageUrl is relative to the package root */
+  interface ShareContent {
+    title?: string;
+    imageUrl?: string;
+    query?: string;
+  }
   interface Wx {
     getWindowInfo?(): WindowInfo;
     getSystemInfoSync(): WindowInfo;
@@ -46,6 +52,9 @@ declare namespace WechatMinigame {
     onHide(cb: () => void): void;
     onError?(cb: (res: { message: string; stack?: string }) => void): void;
     setKeepScreenOn?(opts: { keepScreenOn: boolean }): void;
+    showShareMenu?(opts: { withShareTicket?: boolean; menus?: ('shareAppMessage' | 'shareTimeline')[] }): void;
+    onShareAppMessage?(cb: () => ShareContent): void;
+    onShareTimeline?(cb: () => ShareContent): void;
   }
 }
 

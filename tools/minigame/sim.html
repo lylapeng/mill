@@ -93,6 +93,9 @@
         onShow: (cb) => document.addEventListener('visibilitychange', () => !document.hidden && cb()),
         onHide: (cb) => document.addEventListener('visibilitychange', () => document.hidden && cb()),
         setKeepScreenOn: () => {},
+        showShareMenu: (opts) => (window.__share = { ...window.__share, menus: opts.menus }),
+        onShareAppMessage: (cb) => (window.__share = { ...window.__share, friend: cb }),
+        onShareTimeline: (cb) => (window.__share = { ...window.__share, timeline: cb }),
       };
 
       window.wx = wx;
