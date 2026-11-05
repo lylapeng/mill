@@ -106,7 +106,9 @@ export class Flock {
     return this.pass !== null;
   }
 
+  /** returns who is in it, and which way it's crossing: 1 left to right */
   start(pass: Pass) {
+    const who: Species[] = [];
     this.pass = pass;
     this.clock = 0;
     this.dir = Math.random() < 0.5 ? 1 : -1;
@@ -116,13 +118,16 @@ export class Flock {
     this.members.forEach((m, i) => {
       m.group.visible = i < this.count;
       // winter flocks of these birds really are mixed
-      m.wear(SPECIES[Math.floor(Math.random() * SPECIES.length)], this.wings);
+      const species = SPECIES[Math.floor(Math.random() * SPECIES.length)];
+      m.wear(species, this.wings);
+      if (i < this.count) who.push(species);
       m.group.scale.setScalar(COATS.bluetit.size * pass.scale);
       m.lag = i * 0.055 + Math.random() * 0.03;
       m.out = (Math.random() - 0.5) * 0.14;
       m.up = (Math.random() - 0.5) * 0.16;
       m.phase = Math.random() * 10;
     });
+    return { who, dir: this.dir };
   }
 
   /** `cx`, `cz`: the camera. `look`: which way it faces, as an angle in the walking plane */

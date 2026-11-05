@@ -73,9 +73,10 @@ This file is the project's memory. Read it before working; update it when a deci
 
 - 纯静态前端，无服务器、无账号、无排行榜、无联机、无内购。
 - 不引入物理引擎、不引入 UI 框架（React 等）。
-- 第三方素材只用 CC0（字体可以用 SIL OFL），并在此记录来源。场景、磨、树由几何体程序化生成；声音由 Web Audio 合成。
+- 第三方素材只用 CC0（字体可以用 SIL OFL），并在此记录来源。场景、磨、树由几何体程序化生成；声音由 Web Audio 合成，只有鸟叫是真实录音。
 - **素材来源**：`public/models/*.glb` 是 Quaternius「Ultimate Animated Animal Pack」（CC0，经 poly.pizza 下载）：horse、horse-white、donkey、ox（原为 Bull，代码里改成黄牛色）；小红书版另有 `xhs/models/stag.glb`（Quaternius「Stag」，CC0，poly.pizza/m/tQdzbZ1Cmw，同样裁剪，约 260 KB）。只保留了 Idle / Walk / Gallop / Eating 四套动画（用 `tools/shots/slim.mjs`，再用 `shrink.mjs` 清残留并量化网格，四个共约 940 KB；依赖装在临时目录）。
 - **字体**：小游戏另带思源宋体（Noto Serif SC，SIL OFL 1.1）子集，授权在 `minigame/fonts/OFL-NotoSerifSC.txt`。封面标题"拉磨"用马善政楷书（Ma Shan Zheng，SIL OFL 1.1，Google Fonts），只裁出这两个字（`public/fonts/mashanzheng-lamo.woff2`，约 2 KB），授权文本在 `public/fonts/OFL-MaShanZheng.txt`。其余文字仍用系统宋体（用户觉得现在的字体就不错）。
+- **鸟叫**：`public/sounds/*.mp3` 是 iNaturalist 上标为 CC0（no rights reserved）的录音，裁短、滤低频、降噪、统一音量（共 88 KB）。选录音先看原声响度：原声太轻的放大几十 dB 也没用（用户听过，换掉了一段）。噪声门只对声音之间有空隙的录音有用，连续的录音会多出噪声开关感。来源（observation / sound）：大山雀 204405337 / 943957（song）、69135805 / 162495（call）；蓝山雀 212876436 / 1012316（song）、105628394 / 350618（call）；麻雀 356654974 / 1913285（song）、230438141 / 1137651（call）。Commons 和 xeno-canto 的基本是 BY-SA 或非商用，不能用。小红书包里不能有音频，构建时写成 `sounds.js`（base64）。
 - 桌面端优先；手机端只保证"点左右半屏迈步"能玩，布局有基础适配。
 
 ## 调性
@@ -103,7 +104,7 @@ This file is the project's memory. Read it before working; update it when a deci
 - **体型要拉开**：马明显比驴大（`HEIGHT`：马 2.05、牛 1.65、驴 1.2，指耳尖高度）。骑手视角里模型保持真实大小、不按体型缩放偏移，所以马的头颈在画面里约是驴的两倍宽，视线也高出一截（马越过篱笆，驴与篱笆齐平）。用户反馈过"大小看起来无差别"。
 - 第一人称的身体（`Rider`）跟着相机位置，但有自己的朝向：转头看磨时只是眼睛在转，身体只跟一点（`clamp(yaw, -0.5, 0.45)`）。相机高度由模型算出（`Rider.eyeHeight`），保证蹄子踩在地上；头骨（`Head` 骨骼）在相机坐标里的位置见 `RIDE`。身体挂在以头为支点的 `sway` 组上，走路时背部左右摆、头微点，节奏取 `walkPhase`（之前身体死贴镜头，用户觉得僵）。牛的镜头要比马驴更高（`RIDE.ox.y`），否则背上的隆起会占满画面下方。
 - 耳朵抽动是在动画之上叠加的骨骼旋转（`Ear1L/R`，GLTFLoader 会去掉名字里的点）；每帧先撤销上一帧的叠加量，否则动画不碰耳朵时会累积。牛模型没有耳朵骨骼。
-- **鸟跟着景慢慢靠近**（`config.ts` 的 `BIRD`、`birdStage`；`world/bird/`）：黄土没有鸟；场景 Lv5 起小群远飞（36 米）；场景 Lv7 起有鸟叫，小群近飞（10 米，不到磨边）；铜轮磨 Lv9 + 场景 Lv7 起一只落到磨杆上。没用「铜磨 + 初晴 Lv5」，因为先升磨的玩家会跳过鸟叫和近飞。只有落磨时镜头才转头看。
+- **鸟跟着景慢慢靠近**（`config.ts` 的 `BIRD`、`birdStage`；`world/bird/`）：黄土没有鸟；场景 Lv5 起小群远飞（36 米）；场景 Lv7 起有鸟叫，小群近飞（10 米，不到磨边）；铜轮磨 Lv9 + 场景 Lv7 起一只落到磨杆上。没用「铜磨 + 初晴 Lv5」，因为先升磨的玩家会跳过鸟叫和近飞。只有落磨时镜头才转头看。远飞没有声音（第一次听见鸟叫要和近飞一起来）；近飞时叫两声、声音从一侧移到另一侧（微信没有声像）；落下唱一段、起飞叫一声。背景鸟叫也用这些录音，读不到时退回合成音。音量是 `visit.ts` 的 `NEAR_CALL` / `PERCH_CALL` 和 `audio.ts` 的 `AMBIENT_CALL`。
 - 鸟群用简化小鸟（`flock.ts`）并放大（远 2.5 倍、近 1.2 倍）：0.2 米的鸟在 30 米外手机上只有约 3 像素。落磨的完整模型三种鸟共用（`songbird.ts`），只换羽色（`coats.ts`：蓝山雀、大山雀、麻雀），到落磨阶段才生成，羽色每隔 1.5 秒画一种。
 - "倔"只属于驴：只有驴显示这一项，对应 `freedomBonus` +0.4%（每次奔向草原的成功率）。牛和马没有这个属性。
 - 封面：三个动物的侧面轮廓（驴往镜头转约 20°，否则两只耳朵叠成一只、像山羊；用户说牛和马的轮廓可以），由模型实时渲染成 PNG（`silhouettes()`，同一比例尺，驴比马小），用 CSS mask 着色；点选后才显示描述、数值和"开始拉磨"。

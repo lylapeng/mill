@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { Sound } from '../../audio';
 import { WALK_RADIUS, type BirdStage } from '../../config';
 import type { Mill } from '../mill';
 import { Behave, type Act } from './behave';
@@ -24,6 +25,9 @@ const STAY: [Act, number][] = [['idle', 2.6], ['hop', 0.34], ['idle', 1.8], ['ho
 const SOON: [number, number] = [8, 18];
 const NEXT_WAIT: [number, number] = [70, 150];
 const PAINT_GAP = 1.5;
+// the far flock is silent: the first song the player hears comes with the first close pass
+const NEAR_CALL = 0.16;
+const PERCH_CALL = 0.28;
 
 const rnd = ([a, b]: [number, number]) => a + Math.random() * (b - a);
 const turn = (from: number, to: number) => Math.atan2(Math.sin(to - from), Math.cos(to - from));
@@ -58,8 +62,10 @@ export class BirdVisit {
   /** painting a coat takes a phone a few frames, so they're spread out */
   private toPaint: Species[] = [];
   private paintWait = PAINT_GAP;
+  /** calls still to come from the flock overhead, by seconds from now */
+  private cues: { in: number; call: () => void }[] = [];
 
-  constructor() {
+  constructor(private sound: Sound) {
     this.group.add(this.flock.group);
     this.brain.auto = false;
   }
@@ -112,6 +118,8 @@ export class BirdVisit {
       this.bird!.skin(this.toPaint.pop()!);
       this.paintWait = PAINT_GAP;
     }
+    for (const c of this.cues) if ((c.in -= dt) <= 0) c.call();
+    this.cues = this.cues.filter((c) => c.in > 0);
     this.flock.update(dt, Math.cos(angle) * WALK_RADIUS, Math.sin(angle) * WALK_RADIUS, angle + yaw);
 
     if (this.state === 'away') {
@@ -123,7 +131,14 @@ export class BirdVisit {
       this.wait -= dt;
       if (this.wait > 0 || busy) return;
       if (stage !== 'perch') {
-        this.flock.start(stage === 'far' ? FAR : NEAR);
+        const { who, dir } = this.flock.start(stage === 'far' ? FAR : NEAR);
+        if (stage === 'near') {
+          // as they come into view, and an answer as they pass
+          this.cues = [
+            { in: 1.3, call: () => this.sound.birdCall(who[0], 'song', NEAR_CALL, -0.7 * dir, 0.3 * dir) },
+            { in: 2.5, call: () => this.sound.birdCall(who[1], 'call', NEAR_CALL * 0.7, 0.2 * dir, 0.8 * dir) },
+          ];
+        }
         this.wait = rnd(NEXT_WAIT);
         return;
       }
@@ -211,6 +226,7 @@ export class BirdVisit {
     b.home = { x: 0, y: 0, z: 0 };
     b.start('idle');
     b.dur = STAY[0][1];
+    this.sound.birdCall(this.species, 'song', PERCH_CALL);
   }
 
   private takeOff() {
@@ -219,5 +235,6 @@ export class BirdVisit {
     this.from.copy(this.group.position);
     this.brain.start('fly');
     this.brain.dur = FLY_OUT * 2;
+    this.sound.birdCall(this.species, 'call', PERCH_CALL * 0.8);
   }
 }

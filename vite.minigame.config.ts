@@ -28,6 +28,7 @@ export default defineConfig({
         mkdirSync(out, { recursive: true });
         cpSync('minigame', out, { recursive: true });
         cpSync('public/models', `${out}/models`, { recursive: true });
+        cpSync('public/sounds', `${out}/sounds`, { recursive: true });
         // the stag, which the web version doesn't have (kept with the Xiaohongshu files)
         cpSync('xhs/models/stag.glb', `${out}/models/stag.glb`);
         cpSync('public/fonts/OFL-MaShanZheng.txt', `${out}/fonts/OFL-MaShanZheng.txt`);

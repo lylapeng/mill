@@ -77,7 +77,7 @@ export class MillGame {
     this.animal = ANIMALS[run.animal];
     this.rider = new Rider(run.animal);
     yard.scene.add(this.rider.group);
-    this.bird = new BirdVisit();
+    this.bird = new BirdVisit(this.sound);
     yard.scene.add(this.bird.group);
     yard.setMillLevel(run.millLevel, true);
     yard.setSceneLevel(run.sceneLevel, true);

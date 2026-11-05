@@ -43,6 +43,13 @@ export default defineConfig({
             `(window.__millFiles = window.__millFiles || {})[${JSON.stringify(`models/${f}`)}] = "${b64}";\n`,
           );
         }
+        // no audio files in the package either: the bird calls go the same way, as one script
+        writeFileSync(
+          `${out}/sounds.js`,
+          readdirSync('public/sounds').filter((f) => f.endsWith('.mp3')).map((f) =>
+            `(window.__millFiles = window.__millFiles || {})[${JSON.stringify(`sounds/${f}`)}] = "${readFileSync(`public/sounds/${f}`).toString('base64')}";\n`,
+          ).join(''),
+        );
         cpSync('xhs/fonts/noto-serif-sc.woff2', `${out}/fonts/noto-serif-sc.woff2`);
         cpSync('public/fonts/mashanzheng-lamo.woff2', `${out}/fonts/mashanzheng-lamo.woff2`);
         const licence = (name: string, file: string) =>

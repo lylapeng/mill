@@ -1,10 +1,14 @@
-// Every sound is synthesised with Web Audio — no audio files in the repo.
+// Everything but the birds is synthesised with Web Audio. The birds are short real recordings
+// (public/sounds, CC0), and fall back to a synthesised chirp if those don't load.
 // Kept quiet and soft on purpose: hooves, stone, wind, a few bells.
 // The mini game's Web Audio is its own implementation: connect() may not return the
 // node it connected to, and some node types are missing. So connections go through
 // link(), and anything that throws switches the sound off instead of stopping the game.
 
 import { platform } from './platform';
+import { SPECIES, type Species } from './world/bird/coats';
+
+export type BirdCall = 'song' | 'call';
 
 /** a → b → c, without relying on connect() returning its destination */
 function link(...nodes: AudioNode[]) {
@@ -16,6 +20,8 @@ function fill(buffer: AudioBuffer, channel: number, data: Float32Array<ArrayBuff
   if (typeof buffer.copyToChannel === 'function') buffer.copyToChannel(data, channel);
   else buffer.getChannelData(channel).set(data);
 }
+
+const AMBIENT_CALL = 0.06;
 
 export class Sound {
   /** told when the sound gives up or doesn't start (the mini game shows it on screen while testing) */
@@ -30,6 +36,7 @@ export class Sound {
   private muted = false;
   private broken = false;
   private birdTimer = 4;
+  private calls = new Map<string, AudioBuffer>();
 
   /** Run `fn`; if the audio engine throws, go silent for good rather than break the game. */
   private safely(fn: () => void) {
@@ -58,6 +65,7 @@ export class Sound {
     this.ctx = ctx;
     // a context made outside a gesture, or by a native engine, may start suspended
     if (ctx.state !== 'running') void ctx.resume?.();
+    this.loadCalls(ctx);
     setTimeout(() => {
       if (this.ctx && this.ctx.state !== 'running') this.onFail(`声音没启动（${this.ctx.state}）`);
     }, 1500);
@@ -203,6 +211,45 @@ export class Sound {
     });
   }
 
+  /** the callback form of decodeAudioData: the mini game's has no promise */
+  private loadCalls(ctx: AudioContext) {
+    for (const species of SPECIES) {
+      for (const kind of ['song', 'call']) {
+        const name = `${species}-${kind}`;
+        platform.readFile(`sounds/${name}.mp3`)
+          .then((data) => new Promise<AudioBuffer>((done, fail) => void ctx.decodeAudioData(data, done, fail)))
+          .then((buffer) => this.calls.set(name, buffer))
+          .catch(() => this.onFail(`鸟叫没读到：${name}`));
+      }
+    }
+  }
+
+  /** a real bird. `from`, `to`: where it is, left -1 to right 1, over the length of the call */
+  birdCall(species: Species, kind: BirdCall, level: number, from = 0, to = from) {
+    this.play(this.calls.get(`${species}-${kind}`), level, from, to);
+  }
+
+  private play(buffer: AudioBuffer | undefined, level: number, from: number, to: number) {
+    this.safely(() => {
+      const ctx = this.ctx;
+      if (!ctx || !buffer) return;
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      // no two calls quite alike, from only a few recordings
+      if (src.playbackRate) src.playbackRate.value = 0.96 + Math.random() * 0.08;
+      const g = ctx.createGain();
+      g.gain.value = level;
+      if (typeof ctx.createStereoPanner === 'function') {
+        const pan = ctx.createStereoPanner();
+        pan.pan.setValueAtTime(from, ctx.currentTime);
+        pan.pan.linearRampToValueAtTime(to, ctx.currentTime + buffer.duration);
+        link(src, g, pan, this.master);
+      } else link(src, g, this.master);
+      g.connect(this.reverbSend);
+      src.start();
+    });
+  }
+
   /** Called each frame with the walking speed in [0, 1] and scene beauty in [0, 4]. */
   ambience(speed01: number, beauty: number, birdsong: boolean, dt: number) {
     this.safely(() => {
@@ -213,8 +260,16 @@ export class Sound {
       if (birdsong) {
         this.birdTimer -= dt;
         if (this.birdTimer <= 0) {
-          this.birdTimer = 5 + Math.random() * 9;
-          this.bird();
+          const all = [...this.calls.values()];
+          if (all.length) {
+            // somewhere off in the trees
+            this.birdTimer = 9 + Math.random() * 11;
+            const side = Math.random() * 1.6 - 0.8;
+            this.play(all[Math.floor(Math.random() * all.length)], AMBIENT_CALL, side, side);
+          } else {
+            this.birdTimer = 5 + Math.random() * 9;
+            this.bird();
+          }
         }
       }
     });
