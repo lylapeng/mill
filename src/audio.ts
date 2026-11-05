@@ -204,13 +204,13 @@ export class Sound {
   }
 
   /** Called each frame with the walking speed in [0, 1] and scene beauty in [0, 4]. */
-  ambience(speed01: number, beauty: number, dt: number) {
+  ambience(speed01: number, beauty: number, birdsong: boolean, dt: number) {
     this.safely(() => {
       if (!this.ctx) return;
       const now = this.ctx.currentTime;
       this.grindGain.gain.setTargetAtTime(speed01 * 0.22, now, 0.2);
       this.windGain.gain.setTargetAtTime(0.04 + beauty * 0.01, now, 1);
-      if (beauty >= 1.5) {
+      if (birdsong) {
         this.birdTimer -= dt;
         if (this.birdTimer <= 0) {
           this.birdTimer = 5 + Math.random() * 9;

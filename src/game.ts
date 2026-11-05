@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import {
   ANIMALS, ECONOMY, LEVELS_PER_TIER, MAX_LEVEL, MILL_TIERS, MIRAGE, RHYTHM, SCENE_TIERS, TEXT, WALK_RADIUS,
-  freedomChance, millCost, sceneCost, tierOf, yieldPerLap, type AnimalDef,
+  BIRD, birdStage, freedomChance, millCost, sceneCost, tierOf, yieldPerLap, type AnimalDef,
 } from './config';
 import type { Sound } from './audio';
 import type { Input } from './input';
 import { platform } from './platform';
 import { saveRun, type RunState } from './save';
 import type { GameUi, UpgradeInfo } from './ui-api';
+import { BirdVisit } from './world/bird/visit';
 import { Rider } from './world/models';
 import type { Yard } from './world/yard';
 import { clamp, damp, fitFov, smoothstep } from './util';
@@ -33,10 +34,13 @@ const ROPE = 2.6;
 const HEAD_YAW = 0.3;
 /** looking straight at the mill */
 const MILL_YAW = 1.3;
+/** as far round as the head goes to watch a bird on the beam */
+const BIRD_YAW = 1.9;
 
 export class MillGame {
   readonly animal: AnimalDef;
   private rider: Rider;
+  readonly bird: BirdVisit;
   private speed = 0;
   private combo = 0;
   private lastSide: 'L' | 'R' | null = null;
@@ -73,6 +77,8 @@ export class MillGame {
     this.animal = ANIMALS[run.animal];
     this.rider = new Rider(run.animal);
     yard.scene.add(this.rider.group);
+    this.bird = new BirdVisit();
+    yard.scene.add(this.bird.group);
     yard.setMillLevel(run.millLevel, true);
     yard.setSceneLevel(run.sceneLevel, true);
     if (run.sceneLevel >= MIRAGE.unlockSceneLevel) this.unlockMirage();
@@ -83,6 +89,7 @@ export class MillGame {
 
   dispose() {
     this.rider.dispose();
+    this.yard.scene.remove(this.bird.group);
     this.yard.mirage.opacity = 0;
     this.ui.prompt(false);
     this.ui.mirageHint(0, 0);
@@ -198,7 +205,14 @@ export class MillGame {
     this.updateMirage(dt);
     this.rider.update(dt, clamp(this.speed / this.animal.maxSpeed), this.dash !== null, this.walkPhase);
     this.yard.mill.update(dt, time, this.run.angle);
-    this.sound.ambience(clamp(this.speed / this.animal.maxSpeed), Math.min(4, (this.run.sceneLevel - 1) / 4), dt);
+    this.bird.update(
+      dt, this.yard.mill, birdStage(this.run.sceneLevel, this.run.millLevel), this.run.angle, this.yaw,
+      this.dash !== null || this.mirageState === 'showing',
+    );
+    this.sound.ambience(
+      clamp(this.speed / this.animal.maxSpeed), Math.min(4, (this.run.sceneLevel - 1) / 4),
+      this.run.sceneLevel >= BIRD.nearSceneLevel, dt,
+    );
 
     this.saveTimer -= dt;
     if (this.saveTimer <= 0) {
@@ -254,8 +268,15 @@ export class MillGame {
     this.glance = Math.max(0, this.glance - dt);
     const lx = this.input.lookX;
     const mouseYaw = Math.abs(lx) < 0.3 ? 0 : (lx - Math.sign(lx) * 0.3) / 0.7;
-    const target = this.glance > 0 ? MILL_YAW : HEAD_YAW + mouseYaw * (mouseYaw > 0 ? MILL_YAW - HEAD_YAW : 0.8);
-    this.yaw = damp(this.yaw, target, this.glance > 0 ? 2.5 : 4, dt);
+    let target = this.glance > 0 ? MILL_YAW : HEAD_YAW + mouseYaw * (mouseYaw > 0 ? MILL_YAW - HEAD_YAW : 0.8);
+    // a visiting bird draws the eye, unless the player is already looking somewhere
+    const watching = this.glance <= 0 && mouseYaw === 0 && this.bird.here;
+    if (watching) {
+      const dx = this.bird.at.x - cam.position.x, dz = this.bird.at.z - cam.position.z;
+      const ahead = -Math.sin(a) * dx + Math.cos(a) * dz, inward = -Math.cos(a) * dx - Math.sin(a) * dz;
+      target = clamp(Math.atan2(inward, ahead), HEAD_YAW, BIRD_YAW);
+    }
+    this.yaw = damp(this.yaw, target, this.glance > 0 || watching ? 2.5 : 4, dt);
     this.tmpLook
       .set(-Math.sin(a), 0, Math.cos(a))
       .multiplyScalar(Math.cos(this.yaw))

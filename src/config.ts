@@ -138,6 +138,24 @@ export const freedomChance = (sceneLevel: number, fails: number, animal: AnimalD
   );
 };
 
+/** how close the birds come: it follows the scene, and the mill too for the last step */
+export const BIRD = {
+  /** a small flock crosses the far sky */
+  farSceneLevel: 5,
+  /** birdsong starts, and the flock passes over the yard */
+  nearSceneLevel: 7,
+  /** with birdsong, one comes down onto the beam */
+  perchMillLevel: 9,
+};
+
+export type BirdStage = 'none' | 'far' | 'near' | 'perch';
+
+export const birdStage = (sceneLevel: number, millLevel: number): BirdStage => {
+  if (sceneLevel < BIRD.farSceneLevel) return 'none';
+  if (sceneLevel < BIRD.nearSceneLevel) return 'far';
+  return millLevel < BIRD.perchMillLevel ? 'near' : 'perch';
+};
+
 export const MILL_TIERS = ['石磨', '木亭磨', '铜轮磨', '蒸汽磨', '星辉磨'];
 export const SCENE_TIERS = ['黄土', '初晴', '青野', '金暮', '流霞'];
 

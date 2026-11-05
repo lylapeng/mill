@@ -75,6 +75,10 @@ const PULLEY_R = 0.24;
 const FLY_Y = 1.25;
 const FLY_R = 0.7;
 
+const BEAM_YAW = 0.13;
+const BEAM_TOP = 1.185;
+const UP = new THREE.Vector3(0, 1, 0);
+
 export class Mill {
   readonly group = new THREE.Group();
   /** turns with the walking angle: upper stone, axle, beam */
@@ -119,7 +123,7 @@ export class Mill {
     this.rotor.add(hopper);
     this.rotor.add(cyl(0.07, 0.07, 1.9, 8, mats.woodDark, 1.0));
     const beamArm = new THREE.Group();
-    beamArm.rotation.y = 0.13; // the harness sits a little behind your head
+    beamArm.rotation.y = BEAM_YAW; // the harness sits a little behind your head
     const beamLen = WALK_RADIUS - 0.25;
     const beam = box(beamLen, 0.13, 0.13, mats.wood);
     beam.position.set(beamLen / 2 + 0.2, 1.12, 0);
@@ -355,6 +359,16 @@ export class Mill {
     this.tier = tier;
     const pile = 0.6 + level * 0.06;
     this.flourPile.scale.set(pile, pile, pile);
+  }
+
+  /** which way the beam points, as a rotation about y */
+  get beamYaw() {
+    return this.rotor.rotation.y + BEAM_YAW;
+  }
+
+  /** the point on top of the beam, `x` out from the axle */
+  beamTop(x: number, out: THREE.Vector3) {
+    return out.set(x, BEAM_TOP, 0).applyAxisAngle(UP, this.beamYaw);
   }
 
   update(dt: number, time: number, angle: number) {

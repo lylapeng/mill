@@ -103,6 +103,8 @@ This file is the project's memory. Read it before working; update it when a deci
 - **体型要拉开**：马明显比驴大（`HEIGHT`：马 2.05、牛 1.65、驴 1.2，指耳尖高度）。骑手视角里模型保持真实大小、不按体型缩放偏移，所以马的头颈在画面里约是驴的两倍宽，视线也高出一截（马越过篱笆，驴与篱笆齐平）。用户反馈过"大小看起来无差别"。
 - 第一人称的身体（`Rider`）跟着相机位置，但有自己的朝向：转头看磨时只是眼睛在转，身体只跟一点（`clamp(yaw, -0.5, 0.45)`）。相机高度由模型算出（`Rider.eyeHeight`），保证蹄子踩在地上；头骨（`Head` 骨骼）在相机坐标里的位置见 `RIDE`。身体挂在以头为支点的 `sway` 组上，走路时背部左右摆、头微点，节奏取 `walkPhase`（之前身体死贴镜头，用户觉得僵）。牛的镜头要比马驴更高（`RIDE.ox.y`），否则背上的隆起会占满画面下方。
 - 耳朵抽动是在动画之上叠加的骨骼旋转（`Ear1L/R`，GLTFLoader 会去掉名字里的点）；每帧先撤销上一帧的叠加量，否则动画不碰耳朵时会累积。牛模型没有耳朵骨骼。
+- **鸟跟着景慢慢靠近**（`config.ts` 的 `BIRD`、`birdStage`；`world/bird/`）：黄土没有鸟；场景 Lv5 起小群远飞（36 米）；场景 Lv7 起有鸟叫，小群近飞（10 米，不到磨边）；铜轮磨 Lv9 + 场景 Lv7 起一只落到磨杆上。没用「铜磨 + 初晴 Lv5」，因为先升磨的玩家会跳过鸟叫和近飞。只有落磨时镜头才转头看。
+- 鸟群用简化小鸟（`flock.ts`）并放大（远 2.5 倍、近 1.2 倍）：0.2 米的鸟在 30 米外手机上只有约 3 像素。落磨的完整模型三种鸟共用（`songbird.ts`），只换羽色（`coats.ts`：蓝山雀、大山雀、麻雀），到落磨阶段才生成，羽色每隔 1.5 秒画一种。
 - "倔"只属于驴：只有驴显示这一项，对应 `freedomBonus` +0.4%（每次奔向草原的成功率）。牛和马没有这个属性。
 - 封面：三个动物的侧面轮廓（驴往镜头转约 20°，否则两只耳朵叠成一只、像山羊；用户说牛和马的轮廓可以），由模型实时渲染成 PNG（`silhouettes()`，同一比例尺，驴比马小），用 CSS mask 着色；点选后才显示描述、数值和"开始拉磨"。
 - 蜃楼里的马群也是模型，蜃楼着色器带骨骼蒙皮（`skinning_pars_vertex` 等）。
@@ -135,6 +137,7 @@ src/
     mirage.ts    蜃楼（含倒影），清晰度随失败次数提高
     models.ts    加载动物模型（入口可多要，如鹿）；Animal、Rider（第一人称身体）、封面轮廓
     particles.ts 尘 / 花粉 / 萤火、花瓣
+    bird/        鸟：visit.ts（何时来、落磨）、flock.ts（远飞 / 近飞的小群）、songbird.ts（模型）、coats.ts（三种羽色）、rig.ts、behave.ts、shape.ts
   xhs/           小红书小工具入口 main.ts、platform.ts（存档、包内文件）、follow.ts（关注解锁鹿）、compat.ts
 minigame/        小游戏包里的静态文件（game.json、project.config.json、字体）
 xhs/             小红书包里的静态文件（index.html、style.css、WOFF2 字体、鹿的模型）
