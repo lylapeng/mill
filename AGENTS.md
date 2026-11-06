@@ -11,6 +11,7 @@
 - 上线：GitHub Pages，https://lylapeng.github.io/mill/ （仓库 lylapeng/mill，公开）。`.github/workflows/deploy.yml` 构建 `main`。
   **推送 `main` 目前不会自动触发部署**（原因未查明，GitHub 状态正常），发布要手动：`gh workflow run deploy.yml -R lylapeng/mill --ref main`。
 - Cloudflare Pages（国内访问稍快）：待用户在 Cloudflare 后台连接 GitHub 仓库（生产分支 `main`，构建 `npm run build`，输出 `dist`）。
+- 魔搭创空间（国内访问，2026-11-05）：https://modelscope.cn/studios/Baobens/Baobens ，git 仓库同名、分支 `master`。放的是 `main` 的 `npm run build` 产物，`dist` 里的内容直接放仓库根目录（保留仓库自带的 README.md 和 .gitattributes）。SDK 类型要在创空间设置里选 Static。令牌不要写进仓库或这个文件。
 
 ## 小游戏版（进行中）
 
@@ -80,6 +81,9 @@ This file is the project's memory. Read it before working; update it when a deci
 - 桌面端优先；手机端只保证"点左右半屏迈步"能玩，布局有基础适配。
 
 ## 调性
+
+**写作（用户反复强调）：** 一句话要写完整，不要用逗号或句号把它断成两截。不写“有一只，落到了磨杆上。”，写“一只蓝山雀落到了磨杆上。”。这是语病，不是潮流。回复、正文、字幕和文案都适用。
+
 
 - 不恶俗。文案克制、留白，不玩"打工人"梗的直白嘲讽；美感优先。
 - 前期灰黄、疲惫；越往后越通透、温暖、梦幻。草原那一刻要有反差。
