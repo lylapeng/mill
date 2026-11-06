@@ -33,12 +33,39 @@ const piece = (x: number, pts: number[][]) => {
   return pts[pts.length - 1][1];
 };
 
+/** how far inside a polygon a point is, 0 to 1 over `soft` either side of its edge */
+const inside = (pts: number[][], u: number, v: number, soft: number) => {
+  let d = Infinity, s = -1;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [ax, ay] = pts[i], [bx, by] = pts[j], ex = bx - ax, ey = by - ay, wx = u - ax, wy = v - ay;
+    const t = clamp01((wx * ex + wy * ey) / (ex * ex + ey * ey)), dx = wx - ex * t, dy = wy - ey * t;
+    d = Math.min(d, dx * dx + dy * dy);
+    if ((ay > v) !== (by > v) && u < ax + ((v - ay) / (by - ay)) * ex) s = -s;
+  }
+  return smooth(-soft, soft, s * Math.sqrt(d));
+};
+
+/** corner-cutting, so a traced outline comes out as a curve */
+const round = (pts: number[][], times = 3) => {
+  for (let k = 0; k < times; k++) {
+    pts = pts.flatMap(([ax, ay], i) => {
+      const [bx, by] = pts[(i + 1) % pts.length];
+      return [[ax * 0.75 + bx * 0.25, ay * 0.75 + by * 0.25], [ax * 0.25 + bx * 0.75, ay * 0.25 + by * 0.75]];
+    });
+  }
+  return pts;
+};
+
 /** one row of the feather atlas per kind */
 export enum K { Primary, Secondary, Tertial, Greater, Covert, Tail, Scapular, PrimaryCovert, Shield }
 export const ROWS = 9;
 
-/** a point on the body. `up`: 0 belly, 1 back. `az`, `el`: its direction from the middle of the head */
-export interface Spot { x: number; ax: number; z: number; up: number; az: number; el: number }
+/**
+ * a point on the body. `up`: 0 belly, 1 back. `az`, `el`: its direction from the middle of the head.
+ * `hu`, `hv`: where it falls on a side view of the seated head, bill level. The eye is at hu 0, the bill's axis at
+ * hv 0, and the unit is eye to bill tip, so shapes can be read straight off a photograph.
+ */
+export interface Spot { x: number; ax: number; z: number; up: number; az: number; el: number; hu: number; hv: number }
 
 export interface Coat {
   /** body length in metres */
@@ -58,20 +85,27 @@ export const VENT = hex(0xe9e6d2);
 
 // the head's outlines, shared by all three: they are the same shape of bird
 const collarAt = (az: number) => piece(az, [[0, -0.64], [0.6, -0.6], [1.2, -0.56], [1.9, -0.48], [2.5, -0.1], [3.14, 0.1]]);
-const eyeAt = (az: number) => piece(az, [[0, -0.04], [0.9, 0.18], [2.3, 0.2], [3.14, 0.1]]);
-const eyeHalf = (az: number) => piece(az, [[0, 0.07], [1.15, 0.09], [2.3, 0.1], [3.14, 0.2]]);
-const capAt = (az: number) => piece(az, [[0, 0.38], [1.15, 0.42], [2.4, 0.4], [3.14, 0.36]]);
+const eyeAt = (az: number) => piece(az, [[0, -0.04], [0.9, 0.06], [2.3, 0.12], [3.14, 0.1]]);
 
 // ---------- blue tit (Cyanistes caeruleus) ----------
 const bluetit = (() => {
   const CAP = hex(0x2f7fd6), NAVY = hex(0x16284c), COLLAR = hex(0x446c9b), YEL = hex(0xf3d53f);
   const FLANK = hex(0xcfc264), OLIVE = hex(0x8ea048), RUMP = hex(0x6f9a8a);
   const BLUE = hex(0x2c76cc), DEEP = hex(0x1d4f9a), SLATE = hex(0x28344c), GREY = hex(0x4a5a72);
+  // The head is blocks and not bands, traced from side-on photos (tools/rectify-head.py). All of it is dark, then
+  // two whites go on: the eye line is only the gap left between them, and it runs back into the nape.
+  const HOOD = round([[1, 1.6], [-1.2, 1.6], [-1.38, 0.62], [-1.32, 0.33], [-0.95, -0.1], [-0.6, -0.43], [-0.25, -0.67], [0.1, -0.78], [0.45, -0.66], [1, -0.6]]);
+  // the white over the eye widens going back, because the cap's edge lifts away from it
+  const BROW = round([[1.1, 0.13], [0.62, 0.15], [0.35, 0.21], [0.1, 0.29], [-0.2, 0.37], [-0.55, 0.41], [-0.95, 0.48], [-1.08, 0.62], [-1.05, 0.85], [-0.85, 1.6], [1.1, 1.6]]);
+  // the cheek is a leaf: its tip is behind the eye, and it bellies down towards the chin. It runs on past the front of
+  // the face, so only a thin line reaches the bill and the black is left to the chin
+  const CHEEK = round([[1.1, 0.04], [0.52, 0.05], [0.3, 0.08], [0.05, 0.12], [-0.25, 0.2], [-0.55, 0.27], [-0.98, 0.32], [-0.82, 0.06], [-0.6, -0.2], [-0.27, -0.43], [0.05, -0.56], [0.3, -0.55], [0.46, -0.38], [0.6, -0.16], [1.1, -0.1]]);
+  const CROWN = round([[0.66, 0.68], [0.3, 0.55], [0.1, 0.52], [-0.2, 0.62], [-0.5, 0.86], [-0.78, 1.06], [-0.85, 1.6], [0.75, 1.6]]);
   const coat: Coat = {
     size: 0.2,
     legs: 0x3f4d6b,
     far: [0xf3d53f, 0x8ea048, 0xf5f2e8, 0x2c76cc],
-    body({ ax, z, up, az, el }) {
+    body({ ax, z, up, hu, hv }) {
       // olive back, yellow front
       let c = mixC(YEL, FLANK, smooth(0.4, 0.65, up) * 0.45);
       c = mixC(c, OLIVE, smooth(0.6, 0.76, up));
@@ -84,27 +118,12 @@ const bluetit = (() => {
       c = mixC(c, NAVY, line);
       if (z < 0.1) return c;
 
-      const collar = collarAt(az);
-      const headMask = smooth(collar - 0.03, collar + 0.03, el);
-      const face = mixC(c, WHITE, headMask);
-      // dark collar and bib
-      const band = smooth(collar - 0.27, collar - 0.21, el) * (1 - smooth(collar - 0.01, collar + 0.05, el));
-      let f = mixC(face, COLLAR, band);
-      const bib = (1 - smooth(0.2, 0.34, az)) * (1 - smooth(-0.3, -0.2, el));
-      f = mixC(f, INK, bib);
-      // eye line
-      const eye = eyeAt(az), half = eyeHalf(az);
-      f = mixC(f, INK, 1 - smooth(half - 0.03, half + 0.02, Math.abs(el - eye)));
-      // blue cap, ringed in white
-      const cap = capAt(az);
-      f = mixC(f, CAP, smooth(cap - 0.03, cap + 0.03, el));
-      // nape: blue-black joins eye line to collar
-      const nape = smooth(2.0, 2.6, az) * smooth(collar - 0.1, collar, el) * (1 - smooth(eye + 0.12, eye + 0.2, el));
-      f = mixC(f, COLLAR, nape);
-      const out = mixC(c, f, smooth(0.175, 0.195, z));
-      // a dark collar closes the head off cleanly from the back
-      const ringBand = smooth(0.17, 0.18, z) * (1 - smooth(0.195, 0.205, z)) * smooth(collar - 0.2, collar - 0.1, el) * (1 - smooth(cap - 0.03, cap + 0.03, el));
-      return mixC(out, COLLAR, ringBand);
+      if (hu < -1.6) return c;
+      // blue round the back and under the cheek, black through the eye and at the chin
+      const dark = mixC(COLLAR, INK, Math.max(smooth(-0.85, -0.4, hu) * smooth(-0.1, 0.05, hv), smooth(0.2, 0.45, hu)));
+      let f = mixC(c, dark, inside(HOOD, hu, hv, 0.05));
+      f = mixC(f, WHITE, Math.max(inside(BROW, hu, hv, 0.035), inside(CHEEK, hu, hv, 0.035)));
+      return mixC(f, CAP, inside(CROWN, hu, hv, 0.04));
     },
     feather(r, u, e, outer) {
       let cc: C;
@@ -180,7 +199,7 @@ const greattit = (() => {
 
 // ---------- tree sparrow (Passer montanus), the 麻雀 of Chinese towns ----------
 const sparrow = (() => {
-  const CHESTNUT = hex(0x7c3f20), BLACK = hex(0x17140f), CHEEK = hex(0xefe9db), BELLY = hex(0xf2eee5), CHEST = hex(0xd9d1c3);
+  const CHESTNUT = hex(0x7c3f20), BLACK = hex(0x17140f), BIB = hex(0x5e4d3f), CHEEK = hex(0xefe9db), BELLY = hex(0xf2eee5), CHEST = hex(0xd9d1c3);
   const FLANK = hex(0xc6ad8d), REAR = hex(0xb39670), BACK = hex(0x8d5f37), STREAK = hex(0x33241a), RUMP = hex(0x9c8461);
   const BROWN = hex(0x8c5e36), RUFOUS = hex(0xb17a47), UMBER = hex(0x4a3425), DARK = hex(0x30241b);
   const coat: Coat = {
@@ -205,15 +224,15 @@ const sparrow = (() => {
       // the black spot on the cheek is what tells a tree sparrow from the rest
       const spot = Math.hypot((az - 1.42) / 0.26, (el + 0.14) / 0.12);
       f = mixC(f, BLACK, 1 - smooth(0.8, 1.15, spot));
-      // small black bib
+      // small bib, a soft dark brown: black, it was the heaviest thing on the bird
       const bib = (1 - smooth(0.22, 0.36, az + el * 0.5)) * (1 - smooth(-0.1, -0.03, el)) * smooth(collar - 0.08, collar, el);
-      f = mixC(f, BLACK, bib);
+      f = mixC(f, BIB, bib);
       // black from the bill to the eye
       const eye = eyeAt(az);
       const lore = (1 - smooth(0.85, 1.05, az)) * (1 - smooth(0.02, 0.06, Math.abs(el - eye)));
       f = mixC(f, BLACK, lore);
       // chestnut cap, down the nape
-      const capLine = eye + 0.08;
+      const capLine = eye + 0.2;
       const cap = Math.max(smooth(capLine - 0.03, capLine + 0.03, el), smooth(2.3, 2.7, az) * smooth(collar + 0.02, collar + 0.1, el));
       f = mixC(f, CHESTNUT, cap);
       return mixC(c, f, smooth(0.165, 0.19, z));

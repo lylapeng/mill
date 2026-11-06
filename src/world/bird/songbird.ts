@@ -20,7 +20,7 @@ function shapeAt(z: number) {
 const PROFILE: number[][] = [];
 for (let i = 0; i <= 56; i++) {
   // denser towards both tips, where the curves close
-  const z = -0.475 + (0.5 - 0.5 * Math.cos((i / 56) * Math.PI)) * 1.035;
+  const z = -0.475 + (0.5 - 0.5 * Math.cos((i / 56) * Math.PI)) * 1.047;
   const [t, b] = shapeAt(z), h = Math.max(0.001, (t - b) / 2);
   // from the front the body is a wide ball and the head a narrower one on top of it
   const wide = 0.92 + 0.2 * smooth(0.36, 0.14, z) * smooth(-0.42, -0.12, z);
@@ -78,7 +78,8 @@ function pixels(data: Uint8Array, w: number, h: number) {
   return t;
 }
 
-function paintBody(species: Species) {
+/** `face`: [hu, hv] for each vertex of the loft, as in coats.ts */
+function paintBody(species: Species, face: Float32Array, NS: number, NA: number) {
   const W = 512, H = 256; // a small bird on screen, and this is painted on the phone
   const coat = COATS[species];
   const data = new Uint8Array(W * H * 4);
@@ -91,8 +92,13 @@ function paintBody(species: Species) {
       const [, cy, , rt, rb] = ring(s);
       q.subVectors(p, HEAD);
       const ax = Math.abs(p.x);
+      const fi = s * NS, fj = (phi / (Math.PI * 2)) * NA, i0 = Math.min(NS - 1, Math.floor(fi)), j0 = Math.min(NA - 1, Math.floor(fj));
+      const at = (c: number) => {
+        const k = (i: number, j: number) => face[(i * (NA + 1) + j) * 2 + c];
+        return mix(mix(k(i0, j0), k(i0 + 1, j0), fi - i0), mix(k(i0, j0 + 1), k(i0 + 1, j0 + 1), fi - i0), fj - j0);
+      };
       const c = coat.body({
-        x: p.x, ax, z: p.z,
+        x: p.x, ax, z: p.z, hu: at(0), hv: at(1),
         up: clamp01(0.5 + (p.y - cy) / (2 * (p.y > cy ? rt : rb))),
         az: Math.atan2(ax, q.z),
         el: Math.atan2(q.y, Math.hypot(q.x, q.z)),
@@ -210,6 +216,7 @@ export interface Leg { thigh: THREE.Bone; shank: THREE.Bone; foot: THREE.Bone; h
 // How the head sits on the perch, relative to the body. Shared with rig.ts: seatHead() is measured in this pose.
 export const SEAT = { neckX: 0.75, headX: 0.26, headY: 0.03, headZ: 0.085 };
 const NECK_AT = [0.08, 0.22], HEAD_AT = [0.13, 0.33]; // y, z of the bones as bound
+const FACE = { eye: 0.471, axis: 0.142, unit: 0.139 }; // the eye's z, the bill's y, and eye to bill tip
 const SEAT_FROM = 0.2, SEAT_TO = 0.44, SEAT_CHIN = 0.51; // the stretch of body, in z, that the join is redrawn over
 
 export const SHOULDER = V(0.175, 0.12, 0.16);
@@ -223,6 +230,100 @@ function basis(dir: THREE.Vector3, normal: THREE.Vector3) {
   return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
 }
 
+/** Each bone on the perch as y' = a*y - b*z + ty, z' = b*y + a*z + tz. */
+function seatBones() {
+  const { neckX, headX, headY, headZ } = SEAT;
+  const cn = Math.cos(neckX), sn = Math.sin(neckX), ch = Math.cos(neckX + headX), sh = Math.sin(neckX + headX);
+  const [ny, nz] = NECK_AT, [hy, hz] = HEAD_AT;
+  const neckT = [cn, sn, ny - cn * ny + sn * nz, nz - sn * ny - cn * nz];
+  const py = ny + cn * headY - sn * headZ, pz = nz + sn * headY + cn * headZ;
+  return { neckT, headT: [ch, sh, py - ch * hy + sh * hz, pz - sh * hy - ch * hz] };
+}
+
+/** Where the neck and head bones carry a vertex on the perch, in the same form. */
+function seatBlend(g: Soup, v: number, iNeck: number, iHead: number) {
+  const { neckT, headT } = seatBones();
+  const m = [1, 0, 0, 0];
+  for (let k = 0; k < 3; k++) {
+    const w = g.wt[v * 4 + k], t = g.skin[v * 4 + k] === iHead ? headT : g.skin[v * 4 + k] === iNeck ? neckT : null;
+    if (!t) continue;
+    for (let c = 0; c < 4; c++) m[c] += (t[c] - (c === 0 ? 1 : 0)) * w;
+  }
+  return m;
+}
+
+/**
+ * Where each vertex of the loft falls on a side view of the seated head (see Spot in coats.ts). Taken on the perch,
+ * so what is drawn on a photo lands in the same place on the bird, across the join as well.
+ */
+function headView(g: Soup, NS: number, NA: number, iNeck: number, iHead: number) {
+  const count = (NS + 1) * (NA + 1), out = new Float32Array(count * 2);
+  const [a, b, ty, tz] = seatBones().headT;
+  for (let v = 0; v < count; v++) {
+    const [p, q, sy, sz] = seatBlend(g, v, iNeck, iHead), y = g.pos[v * 3 + 1], z = g.pos[v * 3 + 2];
+    const dy = p * y - q * z + sy - ty, dz = q * y + p * z + sz - tz;
+    out[v * 2] = (a * dz - b * dy - FACE.eye) / FACE.unit;
+    out[v * 2 + 1] = (a * dy + b * dz - FACE.axis) / FACE.unit;
+  }
+  return out;
+}
+
+/**
+ * The join is only smooth on the perch: as built, seatHead has left it bent out of shape. Normals taken there
+ * shade creases that aren't in the outline, so take them from the seated body and carry them back.
+ */
+function seatNormals(g: Soup, NS: number, NA: number, iNeck: number, iHead: number, nrm: THREE.BufferAttribute) {
+  const n = NA + 1, count = (NS + 1) * n;
+  const posed = new Float32Array(count * 3), sum = new Float32Array(count * 3);
+  for (let v = 0; v < count; v++) {
+    const [a, b, ty, tz] = seatBlend(g, v, iNeck, iHead), y = g.pos[v * 3 + 1], z = g.pos[v * 3 + 2];
+    posed.set([g.pos[v * 3], a * y - b * z + ty, b * y + a * z + tz], v * 3);
+  }
+  const A = V(), B = V(), C = V(), f = V();
+  const face = (i: number, j: number, k: number) => {
+    A.fromArray(posed, i * 3); B.fromArray(posed, j * 3).sub(A); C.fromArray(posed, k * 3).sub(A);
+    f.crossVectors(B, C);
+    for (const v of [i, j, k]) { sum[v * 3] += f.x; sum[v * 3 + 1] += f.y; sum[v * 3 + 2] += f.z; }
+  };
+  for (let i = 0; i < NS; i++) for (let j = 0; j < NA; j++) {
+    const a = i * n + j, b = a + 1, c = a + n, d = c + 1;
+    face(a, b, c); face(b, d, c);
+  }
+  for (let i = 0; i <= NS; i++) { // the loft's seam
+    const a = i * n, b = a + NA;
+    for (let c = 0; c < 3; c++) sum[a * 3 + c] = sum[b * 3 + c] = sum[a * 3 + c] + sum[b * 3 + c];
+  }
+  for (let v = 0; v < count; v++) {
+    const [a, b] = seatBlend(g, v, iNeck, iHead), x = sum[v * 3], y = sum[v * 3 + 1], z = sum[v * 3 + 2];
+    const l = Math.hypot(x, y, z);
+    if (l < 1e-9) continue; // the poles keep what they had
+    const by = a * y + b * z, bz = a * z - b * y, m = Math.hypot(x, by, bz) || 1;
+    const sign = nrm.getX(v) * x + nrm.getY(v) * by + nrm.getZ(v) * bz < 0 ? -1 : 1;
+    nrm.setXYZ(v, sign * x / m, sign * by / m, sign * bz / m);
+  }
+}
+
+/**
+ * Turning the head is a true rotation in the shader and not a blend of bones: a bird's head turns inside its
+ * feathers, and blending the head and body bones through a turn this big drags the skin in and folds it.
+ */
+function twistable(m: THREE.Material, u: { angle: THREE.IUniform; pivot: THREE.IUniform; axis: THREE.IUniform }) {
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uTwist = u.angle; sh.uniforms.uPivot = u.pivot; sh.uniforms.uAxis = u.axis;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>
+attribute float twist;
+uniform float uTwist;
+uniform vec3 uPivot, uAxis;
+vec3 turnHead(vec3 p) {
+  float a = uTwist * twist, c = cos(a), s = sin(a);
+  return p * c + cross(uAxis, p) * s + uAxis * dot(uAxis, p) * (1.0 - c);
+}`)
+      .replace('#include <skinnormal_vertex>', '#include <skinnormal_vertex>\nobjectNormal = turnHead(objectNormal);')
+      .replace('#include <skinning_vertex>', '#include <skinning_vertex>\ntransformed = uPivot + turnHead(transformed - uPivot);');
+  };
+}
+
 /**
  * The head bends down a long way from the body on the perch, and the throat is on the inside of that bend, so
  * the skin folds into a ledge where chest meets head. Wider weights would pull the chest in, so instead: pose the
@@ -231,22 +332,7 @@ function basis(dir: THREE.Vector3, normal: THREE.Vector3) {
  */
 function seatHead(g: Soup, NS: number, NA: number, iBody: number, iNeck: number, iHead: number) {
   const n = NA + 1;
-  const { neckX, headX, headY, headZ } = SEAT;
-  const cn = Math.cos(neckX), sn = Math.sin(neckX), ch = Math.cos(neckX + headX), sh = Math.sin(neckX + headX);
-  const [ny, nz] = NECK_AT, [hy, hz] = HEAD_AT;
-  // each bone as y' = a*y - b*z + ty, z' = b*y + a*z + tz
-  const neckT = [cn, sn, ny - cn * ny + sn * nz, nz - sn * ny - cn * nz];
-  const py = ny + cn * headY - sn * headZ, pz = nz + sn * headY + cn * headZ;
-  const headT = [ch, sh, py - ch * hy + sh * hz, pz - sh * hy - ch * hz];
-  const blend = (v: number) => {
-    const m = [1, 0, 0, 0];
-    for (let k = 0; k < 3; k++) {
-      const w = g.wt[v * 4 + k], t = g.skin[v * 4 + k] === iHead ? headT : g.skin[v * 4 + k] === iNeck ? neckT : null;
-      if (!t) continue;
-      for (let c = 0; c < 4; c++) m[c] += (t[c] - (c === 0 ? 1 : 0)) * w;
-    }
-    return m;
-  };
+  const blend = (v: number) => seatBlend(g, v, iNeck, iHead);
   const posed = (v: number) => {
     const [a, b, ty, tz] = blend(v), y = g.pos[v * 3 + 1], z = g.pos[v * 3 + 2];
     return V(g.pos[v * 3], a * y - b * z + ty, b * y + a * z + tz);
@@ -438,8 +524,8 @@ export function buildSongbird() {
     upper.push(V(0, by0 + 0.008 - 0.02 * t * t, 0.52 + t * 0.09));
     lower.push(V(0, by0 - 0.012 - 0.004 * t, 0.52 + t * 0.076));
   }
-  tube(g, upper, (t) => [0.036 * (1 - t) + 0.002, 0.024 * (1 - t) + 0.002], (t) => mixC(BEAK, BEAK2, t * 0.5), () => iHead, 10);
-  tube(g, lower, (t) => [0.031 * (1 - t) + 0.002, 0.014 * (1 - t) + 0.002], BEAK, () => iJaw, 10);
+  tube(g, upper, (t) => [0.048 * (1 - t) + 0.002, 0.032 * (1 - t) + 0.002], (t) => mixC(BEAK, BEAK2, t * 0.5), () => iHead, 10);
+  tube(g, lower, (t) => [0.04 * (1 - t) + 0.002, 0.019 * (1 - t) + 0.002], BEAK, () => iJaw, 10);
 
   g.end(hStart, 2);
 
@@ -470,7 +556,7 @@ export function buildSongbird() {
   const eStart = g.begin();
   const eyes: THREE.Vector3[] = [];
   for (const side of [1, -1]) {
-    const s = sAt(0.49);
+    const s = sAt(0.471);
     const phi = side > 0 ? Math.PI * 0.55 : Math.PI * 1.45;
     const c = surface(s, phi, V());
     c.add(V(-side * 0.017, -0.001, -0.002));
@@ -496,17 +582,26 @@ export function buildSongbird() {
   geo.setIndex(g.idx);
   for (const [s, c, m] of g.groups) geo.addGroup(s, c, m);
   geo.computeVertexNormals();
-  // weld the loft's seam
   const nrm = geo.attributes.normal as THREE.BufferAttribute;
-  for (let i = 0; i <= NS; i++) {
-    const a = i * n, b = a + NA;
-    const x = nrm.getX(a) + nrm.getX(b), y = nrm.getY(a) + nrm.getY(b), z = nrm.getZ(a) + nrm.getZ(b);
-    const l = Math.hypot(x, y, z) || 1;
-    nrm.setXYZ(a, x / l, y / l, z / l); nrm.setXYZ(b, x / l, y / l, z / l);
+  seatNormals(g, NS, NA, iNeck, iHead, nrm);
+  // how much of a turn of the head each vertex takes: all of it on the head, some of it where the neck was
+  const turn = new Float32Array(g.pos.length / 3);
+  for (let v = 0; v < turn.length; v++) for (let k = 0; k < 4; k++) {
+    const b = g.skin[v * 4 + k], w = g.wt[v * 4 + k];
+    turn[v] += b === iHead || b === iJaw ? w : b === iNeck ? w * 0.35 : 0;
   }
+  // and it starts early on the chest: all in the last few rings under the chin, it leaves a notch below the head
+  const EASE = 18;
+  for (let i = 0; i <= NS; i++) for (let j = 0; j <= NA; j++) {
+    let t = 0;
+    for (let k = 0; k <= EASE; k++) t += turn[Math.min(NS, i + k) * n + j];
+    turn[i * n + j] = t / (EASE + 1);
+  }
+  geo.setAttribute('twist', new THREE.BufferAttribute(turn, 1));
 
   const skins: Partial<Record<Species, { body: THREE.Texture; feathers: THREE.Texture }>> = {};
-  const skin = (species: Species) => (skins[species] ??= { body: paintBody(species), feathers: paintFeathers(species) });
+  const face = headView(g, NS, NA, iNeck, iHead);
+  const skin = (species: Species) => (skins[species] ??= { body: paintBody(species, face, NS, NA), feathers: paintFeathers(species) });
   const first = skin('bluetit');
   const bodyMat = new THREE.MeshStandardMaterial({ map: first.body, roughness: 0.78 });
   const featherMat = featherMaterial(first.feathers);
@@ -518,6 +613,8 @@ export function buildSongbird() {
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.12, envMapIntensity: 0.5 }),
     legMat,
   ];
+  const twist = { angle: { value: 0 }, pivot: { value: V() }, axis: { value: V(0, 1, 0) } };
+  for (const m of [mats[0], mats[2], mats[3]]) twistable(m, twist);
   /** repaint it as another bird; the same geometry and bones throughout */
   const wear = (species: Species) => {
     const s = skin(species);
@@ -535,7 +632,7 @@ export function buildSongbird() {
   mesh.bind(new THREE.Skeleton(bones));
 
   const tris = g.idx.length / 3;
-  return { group, mesh, wear, skin, hosts, legs, tail, scap, shields, body, neck, head, jaw: bones[iJaw], rump, tris, bones: bones.length };
+  return { group, mesh, wear, skin, twist, hosts, legs, tail, scap, shields, body, neck, head, jaw: bones[iJaw], rump, tris, bones: bones.length };
 }
 export type Songbird = ReturnType<typeof buildSongbird>;
 export type { Lim };

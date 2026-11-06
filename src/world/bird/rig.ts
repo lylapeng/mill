@@ -26,14 +26,20 @@ const qa = Q(), qb = Q(), q1 = Q(), tmpQ = Q();
 const v0 = new THREE.Vector3(), v1 = new THREE.Vector3(), wrist = new THREE.Vector3();
 const Y = new THREE.Vector3(0, 1, 0), Z = new THREE.Vector3(0, 0, 1), DOWN = new THREE.Vector3(0, -1, 0);
 const hipV = new THREE.Vector3(), target = new THREE.Vector3(), joint = new THREE.Vector3(), axis = new THREE.Vector3();
-const bodyM = new THREE.Matrix4(), bodyInv = new THREE.Matrix4();
+const bodyM = new THREE.Matrix4(), bodyInv = new THREE.Matrix4(), toMesh = new THREE.Matrix4();
 
 export function apply(b: Songbird, p: Pose) {
   b.body.position.set(0, p.lift, 0);
   b.body.rotation.set(p.pitch, 0, p.roll);
-  b.neck.rotation.set(p.neckX, p.headY * 0.35, 0);
+  b.neck.rotation.set(p.neckX, 0, 0);
   b.head.position.set(0, SEAT.headY, SEAT.headZ); // sunk into the shoulders, closer than the bones were bound: no neck
-  b.head.rotation.set(p.headX, p.headY * 0.65, p.headZ, 'YXZ');
+  b.head.rotation.set(p.headX, 0, p.headZ, 'YXZ');
+  // the turn itself happens in the shader, about the head's own upright, in the mesh's space
+  b.head.updateWorldMatrix(true, false);
+  toMesh.copy(b.group.matrixWorld).invert();
+  b.twist.angle.value = p.headY;
+  b.twist.pivot.value.setFromMatrixPosition(b.head.matrixWorld).applyMatrix4(toMesh);
+  b.twist.axis.value.setFromMatrixColumn(b.neck.matrixWorld, 1).transformDirection(toMesh);
   b.jaw.rotation.x = p.jaw;
   b.rump.rotation.set(p.tailX, p.tailY, 0);
   for (const t of b.tail) {
