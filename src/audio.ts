@@ -76,6 +76,8 @@ export class Sound {
   private broken = false;
   private birdTimer = 4;
   private calls = new Map<string, AudioBuffer>();
+  /** off once the engine rejects a pan: the mini game's own AudioParam has thrown on negative values */
+  private canPan = true;
 
   /** Run `fn`; if the audio engine throws, go silent for good rather than break the game. */
   private safely(fn: () => void) {
@@ -264,15 +266,31 @@ export class Sound {
       if (src.playbackRate) src.playbackRate.value = 0.96 + Math.random() * 0.08;
       const g = ctx.createGain();
       g.gain.value = level;
-      if (typeof ctx.createStereoPanner === 'function') {
-        const pan = ctx.createStereoPanner();
-        pan.pan.setValueAtTime(from, ctx.currentTime);
-        pan.pan.linearRampToValueAtTime(to, ctx.currentTime + buffer.duration);
-        link(src, g, pan, this.master);
-      } else link(src, g, this.master);
+      const pan = this.panner(from, to, buffer.duration);
+      if (pan) link(src, g, pan, this.master);
+      else link(src, g, this.master);
       g.connect(this.reverbSend);
       src.start();
     });
+  }
+
+  /**
+   * A panner moving from `from` to `to` over `seconds`, or null where panning isn't there or
+   * isn't accepted. A rejected pan only turns panning off; the sound still plays, centred.
+   */
+  private panner(from: number, to: number, seconds: number): StereoPannerNode | null {
+    const ctx = this.ctx;
+    if (!ctx || !this.canPan || typeof ctx.createStereoPanner !== 'function') return null;
+    try {
+      const now = ctx.currentTime;
+      const pan = ctx.createStereoPanner();
+      pan.pan.setValueAtTime(from, now);
+      if (to !== from && Number.isFinite(seconds) && seconds > 0) pan.pan.linearRampToValueAtTime(to, now + seconds);
+      return pan;
+    } catch {
+      this.canPan = false;
+      return null;
+    }
   }
 
   /** Called each frame with the walking speed in [0, 1] and scene beauty in [0, 4]. */
@@ -313,11 +331,10 @@ export class Sound {
       g.gain.setValueAtTime(0, t);
       g.gain.linearRampToValueAtTime(0.025, t + 0.02);
       g.gain.exponentialRampToValueAtTime(0.0001, t + 0.1);
-      if (typeof ctx.createStereoPanner === 'function') {
-        const pan = ctx.createStereoPanner();
-        pan.pan.value = Math.random() * 1.6 - 0.8;
-        link(o, g, pan, this.master);
-      } else link(o, g, this.master);
+      const side = Math.random() * 1.6 - 0.8;
+      const pan = this.panner(side, side, 0);
+      if (pan) link(o, g, pan, this.master);
+      else link(o, g, this.master);
       g.connect(this.reverbSend);
       o.start(t);
       o.stop(t + 0.12);
