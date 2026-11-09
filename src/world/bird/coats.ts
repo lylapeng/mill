@@ -48,10 +48,13 @@ const inside = (pts: number[][], u: number, v: number, soft: number) => {
 /** corner-cutting, so a traced outline comes out as a curve */
 const round = (pts: number[][], times = 3) => {
   for (let k = 0; k < times; k++) {
-    pts = pts.flatMap(([ax, ay], i) => {
+    // a plain loop, not flatMap: the Xiaohongshu floor is Chrome 61 and flatMap came in 69
+    const cut: number[][] = [];
+    pts.forEach(([ax, ay], i) => {
       const [bx, by] = pts[(i + 1) % pts.length];
-      return [[ax * 0.75 + bx * 0.25, ay * 0.75 + by * 0.25], [ax * 0.25 + bx * 0.75, ay * 0.25 + by * 0.75]];
+      cut.push([ax * 0.75 + bx * 0.25, ay * 0.75 + by * 0.25], [ax * 0.25 + bx * 0.75, ay * 0.25 + by * 0.75]);
     });
+    pts = cut;
   }
   return pts;
 };
