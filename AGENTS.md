@@ -5,9 +5,10 @@
 ## 分支与上线
 
 - `v1`（第一个可玩版本）、`v2`（界面精修 + Quaternius 模型 + 封面轮廓）是快照，**不要再往上提交**。用户说"保存这一版"= 冻结当前分支，后续开下一个 `vN`。
-- `v3`：网页版的工作分支。`main` = 线上版本（与 `v3` 同步）。
+- `v3`：网页版原来的工作分支。`main` = 线上版本；2026-11-10 起 `main` 快进到 `xmas`（网页版没人玩，先上线当试验场，`?season=xmas` 可预览雪景），网页版以后从 `xmas` 上线。
 - `minigame`：小程序/小游戏版，从 `v3` 分出（见下文「小游戏版」）。网页版的修复要同步过来（`git merge v3`）。这个分支重构了共用代码（`platform.ts`、`app.ts`、`ui-api.ts`，网页版也在用），合并 v3 时注意冲突；反过来网页版也可以直接从这个分支上线。
 - `xhs`：小红书版，从 `minigame` 分出（2026-10-31）。微信真机跑通的状态打了 tag `minigame-wx-ok`。**小红书专属的东西放新文件 / 新入口，不改 `src/minigame/` 和 `minigame/` 里的微信代码**；要动共用代码时，同时跑 `npm run build:minigame` 确认微信版不受影响。
+- `xmas`：圣诞雪景，从 `xhs` 分出（2026-11-10，`xhs` 当时已包含 `minigame` 的全部提交）。网页、微信、小红书三个入口都在这个分支上构建。`minigame` 留给「单手 + 鹿」那一版提审，不要把圣诞的东西合进去，等那一版过审后再合。
 - 上线：GitHub Pages，https://lylapeng.github.io/mill/ （仓库 lylapeng/mill，公开）。`.github/workflows/deploy.yml` 构建 `main`。
   **推送 `main` 目前不会自动触发部署**（原因未查明，GitHub 状态正常），发布要手动：`gh workflow run deploy.yml -R lylapeng/mill --ref main`。
 - Cloudflare Pages（国内访问稍快）：待用户在 Cloudflare 后台连接 GitHub 仓库（生产分支 `main`，构建 `npm run build`，输出 `dist`）。
@@ -44,6 +45,19 @@
 - 头像：用户反馈旧的驴拉磨图色调不鲜明、驴和磨颜色分不开。新配色候选在 `~/Desktop/拉磨图标/新配色/`（`stage.js` 的 `top-donkey-7-pop`：奶油色石磨、深灰驴、去掉石板、白天光，推荐这张）。
 - 头像：候选在 `~/Desktop/拉磨图标/`（用 `tools/shots/icon.mjs` 在游戏里摆拍渲染）。用户喜欢的方向：驴头特写（正面夕阳光，`head-donkey-front`）、驴拉磨构图（`mill-donkey-7oclock` 等）。还没最终定。
 - 备案截图与各场景描述文案在 `~/Desktop/拉磨图标/备案截图/`。**这些是网页版横屏截图**；小游戏版要按竖屏界面重拍。
+## 圣诞雪景（`xmas` 分支，进行中）
+
+- **季节一律做成叠在原场景上的一层，按日期打开，不新做场景替换**（用户定的，以后春节等也这样）。等级、经济、存档都不变，只换画面。
+- 开关在 `src/season.ts`：12 月 10 日到 1 月 1 日（含），手机本地时间，启动时判断一次。网页 `?season=xmas` / `?season=none` 强制开关（正式版也认，方便发预览链接）。
+- 调色：`palette.ts` 里 `WINTER` 五档（阴雪、雪停、晴雪、雪暮、极光），名字和升档台词在 `config.ts` 的 `WINTER_SCENE_TIERS` / `WINTER_SCENE_LINES`。新键 `snowCover`、`snow`、`snowfall`、`lamp`（窗灯）、`aurora`（极光 + 星星），夏天的默认值不改变原画面。最高一档是极光夜（用户提议），极光和星星在 `sky.ts`，`uAurora` / `uStars` 为 0 时不画。
+- 积雪：`world/snow.ts` 的 `addSnow` 给材质打补丁，朝上的面盖雪。只在冬天打，夏天的着色器不变。叠在已有 `onBeforeCompile` 上时必须改 `customProgramCacheKey`（否则不同材质会共用同一个程序）。
+- 松树：`land.ts` 的 `pineGeometry`（陡裙 + 平肩，雪只落在肩上），冬天替换圆树冠；花藏掉；枯草留一半、变矮。
+- 终点（`freedom.ts` + `world/xmas.ts`）：雪原、松林、圣诞树（暖色小灯 + 星，靠 bloom 发光，带一个点光源）、五只鹿、极光和星星，字幕改成「这片雪原，是真的。」。终点的地面不受光照，雪色要手动乘天光。
+- 鹿：活动期间所有人在封面上都能直接选（`App.offerTitle` 里统一加，名字下写「新来的」），不需要自由过或关注。网页版现在也加载鹿（`public/models/stag.glb`，从 `xhs/models/` 挪过来，三个版本共用），平时按微信的规则（有动物自由过才出现）。
+- 顺序：网页先做出来看效果，再上微信和小红书。微信审核要 1–7 天，**12 月 1 日前提交**，审核通过后先不发布。
+- 褐头山雀（willow tit，`coats.ts` 的 `willowtit`）只在冬天来：`species()` 返回这一季会来的鸟（冬天四种、夏天三种），落磨、鸟群、鸟叫都按它取；`SPECIES` 是全部四种，只用来一次性建东西。冬天第一只落磨的固定是它（`visit.ts` 的 `dressed`）。喙下黑斑按侧面照投影会漏掉下巴中线，另沿中线补了一条。猫头鹰用户说以后再做（现在的骨架套不上）。
+- 待办：蜃楼换成圣诞树和鹿的剪影；改完文字后重跑两套字体子集化（新加了阴、雪、停、晴、极、光等字）；sim 和真机上看性能。
+
 ## 小红书版（`xhs` 分支）
 
 - 走的是「小工具」（创作后台 Builder Hub → 小工具，**个人可发**），不是需要企业认证的「小程序」。本质是离线 H5 zip，挂在笔记下面。
@@ -75,9 +89,9 @@ This file is the project's memory. Read it before working; update it when a deci
 - 纯静态前端，无服务器、无账号、无排行榜、无联机、无内购。
 - 不引入物理引擎、不引入 UI 框架（React 等）。
 - 第三方素材只用 CC0（字体可以用 SIL OFL），并在此记录来源。场景、磨、树由几何体程序化生成；声音由 Web Audio 合成，只有鸟叫是真实录音。
-- **素材来源**：`public/models/*.glb` 是 Quaternius「Ultimate Animated Animal Pack」（CC0，经 poly.pizza 下载）：horse、horse-white、donkey、ox（原为 Bull，代码里改成黄牛色）；小红书版另有 `xhs/models/stag.glb`（Quaternius「Stag」，CC0，poly.pizza/m/tQdzbZ1Cmw，同样裁剪，约 260 KB）。只保留了 Idle / Walk / Gallop / Eating 四套动画（用 `tools/shots/slim.mjs`，再用 `shrink.mjs` 清残留并量化网格，四个共约 940 KB；依赖装在临时目录）。
+- **素材来源**：`public/models/*.glb` 是 Quaternius「Ultimate Animated Animal Pack」（CC0，经 poly.pizza 下载）：horse、horse-white、donkey、ox（原为 Bull，代码里改成黄牛色）；另有 `stag.glb`（Quaternius「Stag」，CC0，poly.pizza/m/tQdzbZ1Cmw，同样裁剪，约 260 KB；原在 `xhs/models/`，`xmas` 分支起挪进 `public/models/`，三个版本共用）。只保留了 Idle / Walk / Gallop / Eating 四套动画（用 `tools/shots/slim.mjs`，再用 `shrink.mjs` 清残留并量化网格，四个共约 940 KB；依赖装在临时目录）。
 - **字体**：小游戏另带思源宋体（Noto Serif SC，SIL OFL 1.1）子集，授权在 `minigame/fonts/OFL-NotoSerifSC.txt`。封面标题"拉磨"用马善政楷书（Ma Shan Zheng，SIL OFL 1.1，Google Fonts），只裁出这两个字（`public/fonts/mashanzheng-lamo.woff2`，约 2 KB），授权文本在 `public/fonts/OFL-MaShanZheng.txt`。其余文字仍用系统宋体（用户觉得现在的字体就不错）。
-- **鸟叫**：`public/sounds/*.mp3` 是 iNaturalist 上标为 CC0（no rights reserved）的录音，裁短、滤低频、降噪、统一音量（共 88 KB）。选录音先看原声响度：原声太轻的放大几十 dB 也没用（用户听过，换掉了一段）。噪声门只对声音之间有空隙的录音有用，连续的录音会多出噪声开关感。来源（observation / sound）：大山雀 204405337 / 943957（song）、69135805 / 162495（call）；蓝山雀 212876436 / 1012316（song）、105628394 / 350618（call）；麻雀 356654974 / 1913285（song）、230438141 / 1137651（call）。Commons 和 xeno-canto 的基本是 BY-SA 或非商用，不能用。小红书包里不能有音频，构建时写成 `sounds.js`（base64）。
+- **鸟叫**：`public/sounds/*.mp3` 是 iNaturalist 上标为 CC0（no rights reserved）的录音，裁短、滤低频、降噪、统一音量（共 88 KB）。选录音先看原声响度：原声太轻的放大几十 dB 也没用（用户听过，换掉了一段）。噪声门只对声音之间有空隙的录音有用，连续的录音会多出噪声开关感。来源（observation / sound）：大山雀 204405337 / 943957（song）、69135805 / 162495（call）；蓝山雀 212876436 / 1012316（song）、105628394 / 350618（call）；麻雀 356654974 / 1913285（song）、230438141 / 1137651（call）。Commons 和 xeno-canto 的基本是 BY-SA 或非商用，不能用。褐头山雀：21672925 / 33210（song）、72677093 / 180575（call）。小红书包里不能有音频，构建时写成 `sounds.js`（base64）。
 - 桌面端优先；手机端只保证"点左右半屏迈步"能玩，布局有基础适配。
 
 ## 调性
@@ -109,6 +123,7 @@ This file is the project's memory. Read it before working; update it when a deci
 - 第一人称的身体（`Rider`）跟着相机位置，但有自己的朝向：转头看磨时只是眼睛在转，身体只跟一点（`clamp(yaw, -0.5, 0.45)`）。相机高度由模型算出（`Rider.eyeHeight`），保证蹄子踩在地上；头骨（`Head` 骨骼）在相机坐标里的位置见 `RIDE`。身体挂在以头为支点的 `sway` 组上，走路时背部左右摆、头微点，节奏取 `walkPhase`（之前身体死贴镜头，用户觉得僵）。牛的镜头要比马驴更高（`RIDE.ox.y`），否则背上的隆起会占满画面下方。
 - 耳朵抽动是在动画之上叠加的骨骼旋转（`Ear1L/R`，GLTFLoader 会去掉名字里的点）；每帧先撤销上一帧的叠加量，否则动画不碰耳朵时会累积。牛模型没有耳朵骨骼。
 - **鸟跟着景慢慢靠近**（`config.ts` 的 `BIRD`、`birdStage`；`world/bird/`）：黄土没有鸟；场景 Lv5 起小群远飞（36 米）；场景 Lv7 起有鸟叫，小群近飞（10 米，不到磨边）；铜轮磨 Lv9 + 场景 Lv7 起一只落到磨杆上。没用「铜磨 + 初晴 Lv5」，因为先升磨的玩家会跳过鸟叫和近飞。只有落磨时镜头才转头看。远飞没有声音（第一次听见鸟叫要和近飞一起来）；近飞时叫两声、声音从一侧移到另一侧（微信没有声像）；落下唱一段、起飞叫一声。背景鸟叫也用这些录音，读不到时退回合成音。音量是 `visit.ts` 的 `NEAR_CALL` / `PERCH_CALL` 和 `audio.ts` 的 `AMBIENT_CALL`。
+- 落磨的鸟坐姿（`rig.ts` 的 `perch`）：身体抬起约 43°（`pitch -0.75`），收拢的翅膀顺着背线到尾巴根；原来 58° 时翅膀像斗篷挂在身侧（用户反馈「翅膀不太对」，2026-11-10）。头颈角度 `SEAT` 跟着少弯，头保持水平；接缝和羽色投影都按 `SEAT` 烤，改坐姿时一起变。飞羽根部收进身体里、小覆羽和初级覆羽藏在整片覆羽（shield）下面，否则肩上会露出一排锯齿；shield 本身不能推得太靠里，否则会被身体表面穿破。飞羽长度是 `WING_LENGTH = 1.15`（比最早长 15%，收拢时翅尖落到尾巴根上，用户认可）。
 - 鸟群用简化小鸟（`flock.ts`）并放大（远 2.5 倍、近 1.2 倍）：0.2 米的鸟在 30 米外手机上只有约 3 像素。落磨的完整模型三种鸟共用（`songbird.ts`），只换羽色（`coats.ts`：蓝山雀、大山雀、麻雀），到落磨阶段才生成，羽色每隔 1.5 秒画一种。
 - "倔"只属于驴：只有驴显示这一项，对应 `freedomBonus` +0.4%（每次奔向草原的成功率）。牛和马没有这个属性。
 - 封面：三个动物的侧面轮廓（驴往镜头转约 20°，否则两只耳朵叠成一只、像山羊；用户说牛和马的轮廓可以），由模型实时渲染成 PNG（`silhouettes()`，同一比例尺，驴比马小），用 CSS mask 着色；点选后才显示描述、数值和"开始拉磨"。

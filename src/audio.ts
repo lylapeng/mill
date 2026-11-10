@@ -6,7 +6,7 @@
 // link(), and anything that throws switches the sound off instead of stopping the game.
 
 import { platform } from './platform';
-import { SPECIES, type Species } from './world/bird/coats';
+import { species, type Species } from './world/bird/coats';
 
 export type BirdCall = 'song' | 'call';
 
@@ -215,9 +215,10 @@ export class Sound {
 
   /** the callback form of decodeAudioData: the mini game's has no promise */
   private loadCalls(ctx: AudioContext) {
-    for (const species of SPECIES) {
+    // only this season's birds, so the background calls are theirs too
+    for (const bird of species()) {
       for (const kind of ['song', 'call']) {
-        const name = `${species}-${kind}`;
+        const name = `${bird}-${kind}`;
         platform.readFile(`sounds/${name}.mp3`)
           .then((data) => new Promise<AudioBuffer>((done, fail) => void ctx.decodeAudioData(data, done, fail)))
           .then((buffer) => this.calls.set(name, buffer))

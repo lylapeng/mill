@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   ANIMALS, ECONOMY, LEVELS_PER_TIER, MAX_LEVEL, MILL_TIERS, MIRAGE, RHYTHM, SCENE_TIERS, TEXT, WALK_RADIUS,
+  WINTER_SCENE_LINES, WINTER_SCENE_TIERS,
   BIRD, birdStage, freedomChance, millCost, sceneCost, tierOf, yieldPerLap, type AnimalDef,
 } from './config';
 import type { Sound } from './audio';
@@ -12,6 +13,9 @@ import { BirdVisit } from './world/bird/visit';
 import { Rider } from './world/models';
 import type { Yard } from './world/yard';
 import { clamp, damp, fitFov, smoothstep } from './util';
+import { winter } from './season';
+
+const sceneTiers = () => (winter() ? WINTER_SCENE_TIERS : SCENE_TIERS);
 
 // The mill loop: step in rhythm, walk the circle, grind flour, upgrade,
 // and every so often run toward the grassland on the horizon.
@@ -158,7 +162,7 @@ export class MillGame {
     } else {
       this.run.sceneLevel = next;
       this.yard.setSceneLevel(next);
-      if (tierUp) this.ui.tier('scene', tierOf(next), SCENE_TIERS[tierOf(next)], TEXT.sceneTierLines[tierOf(next)]);
+      if (tierUp) this.ui.tier('scene', tierOf(next), sceneTiers()[tierOf(next)], (winter() ? WINTER_SCENE_LINES : TEXT.sceneTierLines)[tierOf(next)]);
       if (next === MIRAGE.unlockSceneLevel) {
         this.unlockMirage();
         this.ui.toast(TEXT.mirageUnlock);
@@ -438,7 +442,7 @@ export class MillGame {
     this.ui.setStats(r.flour, r.laps);
     this.ui.setUpgrades({
       mill: info(r.millLevel, millCost, MILL_TIERS),
-      scene: info(r.sceneLevel, sceneCost, SCENE_TIERS),
+      scene: info(r.sceneLevel, sceneCost, sceneTiers()),
     });
   }
 }

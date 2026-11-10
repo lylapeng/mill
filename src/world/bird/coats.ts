@@ -1,9 +1,14 @@
-// Three birds share one body (songbird.ts) and differ in paint. A coat says what colour
+// Four birds share one body (songbird.ts) and differ in paint (the willow tit only comes at Christmas). A coat says what colour
 // every point of the body and every kind of feather is, how big the bird is, and how it
 // reads from far off in a flock (flock.ts).
 
-export type Species = 'bluetit' | 'greattit' | 'sparrow';
-export const SPECIES: Species[] = ['bluetit', 'greattit', 'sparrow'];
+import { winter } from '../../season';
+
+export type Species = 'bluetit' | 'greattit' | 'sparrow' | 'willowtit';
+const SUMMER: Species[] = ['bluetit', 'greattit', 'sparrow'];
+const WINTER: Species[] = ['willowtit', 'bluetit', 'greattit', 'sparrow'];
+/** the birds that may come this season (season.ts): the willow tit joins them in the snow */
+export const species = (): Species[] => (winter() ? WINTER : SUMMER);
 
 export type C = [number, number, number];
 
@@ -263,4 +268,59 @@ const sparrow = (() => {
   return coat;
 })();
 
-export const COATS: Record<Species, Coat> = { bluetit, greattit, sparrow };
+// ---------- willow tit (Poecile montanus), for the snow ----------
+// A matt black cap down to the nape, its lower edge just under the eye; a small ragged bib under the bill; big white
+// cheeks running back to the side of the neck; soft grey-brown above, cream below, the flanks only faintly buff.
+// The secondaries' pale edges make a pale panel on the closed wing. Traced from photos in snow (pixabay 6545396).
+const willowtit = (() => {
+  const CAP = hex(0x141418), CHEEK = hex(0xf6f4ee), CREAM = hex(0xe8e4dc), FLANK = hex(0xd9c7ab), BACK = hex(0x8e877c);
+  const RUMP = hex(0x9b9080), BIB = hex(0x1c1b1f);
+  const DARK = hex(0x55524e), DUSK = hex(0x75716b), EDGE = hex(0xdcd7cc), WARM = hex(0x928c84);
+  // everything above this line is cap: level from the bill base through the top half of the eye, then down the back
+  // of the neck (front-on, the eyes sit just under it in the white)
+  const HOOD = round([[1.3, 1.8], [-1.7, 1.8], [-1.6, 0.1], [-1.42, -0.48], [-1.15, -0.26], [-0.8, -0.08], [-0.4, 0.0], [-0.05, 0.03], [0.3, 0.02], [0.5, -0.02], [0.62, -0.05], [1.3, -0.05]]);
+  // white from the bill's corner back to the side of the neck, deepest under the eye
+  const FACE = round([[0.75, 0.04], [0.3, -0.04], [-0.3, -0.08], [-1.0, -0.14], [-1.5, -0.4], [-1.55, -0.85], [-1.0, -1.05], [-0.3, -1.0], [0.3, -0.85], [0.75, -0.4]]);
+  // the bib: under the bill, front-on about as wide as the eyes are apart and deeper than wide, its lower edge in wisps
+  const BIBS = round([[0.62, -0.17], [0.5, -0.24], [0.4, -0.36], [0.34, -0.56], [0.36, -0.8], [0.46, -0.98], [0.58, -0.82], [0.64, -0.42]]);
+  const coat: Coat = {
+    size: 0.205,
+    legs: 0x4a4a52,
+    far: [0xeae4d8, 0x8e877c, 0x15151a, 0x6e6860],
+    body({ x, ax, z, up, hu, hv }) {
+      let c = mixC(CREAM, FLANK, smooth(0.12, 0.45, up) * mix(0.6, 1, smooth(0.1, -0.2, z)));
+      c = mixC(c, BACK, smooth(0.58, 0.74, up));
+      c = mixC(c, RUMP, smooth(-0.12, -0.3, z) * smooth(0.55, 0.75, up));
+      if (z < 0.1) return c;
+      if (hu < -1.8) return c;
+      let f = mixC(c, CHEEK, inside(FACE, hu, hv, 0.12));
+      const ragged = (noise(hu * 14 + x * 3, hv * 14) - 0.5) * 0.16;
+      // the wisps: streaks down the lower edge, as the black frays into the throat
+      const wisp = (noise(x * 40, hv * 3) - 0.5) * 0.34 * smooth(-0.55, -0.9, hv);
+      // the side view leaves the middle of the chin out, so the bib also runs down the midline under the bill
+      const mid = (1 - smooth(0.04 + ragged * 0.3, 0.075, ax)) * smooth(0.3, 0.45, hu) * smooth(-0.95, -0.78, hv + ragged + wisp) * (1 - smooth(-0.2, -0.13, hv));
+      f = mixC(f, BIB, Math.max(inside(BIBS, hu + ragged, hv + ragged + wisp, 0.08), mid) * 0.9);
+      return mixC(f, CAP, inside(HOOD, hu, hv, 0.035));
+    },
+    feather(r, u, e, outer) {
+      let cc: C;
+      switch (r) {
+        case K.Primary: return outer ? mixC(DUSK, hex(0xa8a196), smooth(0.6, 1, e)) : mixC(DARK, DUSK, e * 0.4);
+        // the pale panel: broad pale edges on the outer vanes
+        case K.Secondary: return outer ? mixC(DUSK, EDGE, smooth(0.25, 0.7, e)) : mixC(DARK, DUSK, smooth(0.1, 0.8, e));
+        case K.Tertial: cc = mixC(DARK, DUSK, e * 0.4); return mixC(cc, EDGE, smooth(0.42, 0.72, e));
+        case K.Greater: cc = mixC(WARM, DUSK, e * 0.4); return mixC(cc, hex(0xc4beb2), smooth(0.6, 0.95, e) * 0.8);
+        case K.Covert: return mixC(WARM, hex(0xa29c92), smooth(0.5, 1, e) * 0.5);
+        case K.Tail: return outer ? mixC(DUSK, hex(0xa9a296), smooth(0.7, 1, e) * 0.45) : mixC(DARK, DUSK, e * 0.5); // faint edges: bright ones split the tail into sticks
+        case K.Scapular: return mixC(BACK, hex(0x847d72), e * 0.5);
+        case K.Shield: return mixC(hex(0x8a8378), hex(0x756e64), smooth(0.1, 0.85, u));
+        default: return mixC(DARK, DUSK, e * 0.5);
+      }
+    },
+  };
+  return coat;
+})();
+
+export const COATS: Record<Species, Coat> = { bluetit, greattit, sparrow, willowtit };
+/** every coat, whether or not it comes this season (for building things once) */
+export const SPECIES = Object.keys(COATS) as Species[];

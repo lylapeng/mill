@@ -14,6 +14,7 @@ import './world/flat-normals';
 import { Yard } from './world/yard';
 import { hasModel, silhouettes } from './world/models';
 import { fitFov } from './util';
+import { winter } from './season';
 
 // The game as a whole: title → mill → grassland, shared by the web page and the mini game.
 // The entry points own the canvas, the UI and the frame loop; models must be loaded first.
@@ -90,6 +91,7 @@ export class App {
       cam.updateProjectionMatrix();
     }
     this.yard.setPixelRatio(pr);
+    this.freedom?.setPixelRatio(pr);
   }
 
   /** Save now, e.g. because the page is being hidden. */
@@ -122,9 +124,13 @@ export class App {
 
   private offerTitle() {
     const run = loadRun();
+    let offer = this.roster();
+    // at Christmas the stag comes to everyone, without asking anything of them
+    if (winter() && hasModel('stag') && !offer.animals.includes('stag'))
+      offer = { animals: [...offer.animals, 'stag'], fresh: 'stag' };
     this.ui.showTitle({
       portraits: this.portraits,
-      ...this.roster(),
+      ...offer,
       current: run?.animal ?? null,
       freed: this.meta.freed,
       onPick: (a) => this.startRun(newRun(a)),

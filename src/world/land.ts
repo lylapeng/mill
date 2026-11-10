@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { WALK_RADIUS } from '../config';
 import { clamp, damp, mulberry32, smoothstep, yardHeight } from '../util';
 import { FLOWER_COLORS, type Palette } from './palette';
+import { winter } from '../season';
+import { addSnow } from './snow';
 
 // Ground, hills, mountains and everything that grows as the scene level rises.
 // Each growable item carries a threshold; `shown` eases toward the scene level
@@ -89,6 +91,8 @@ export class Land {
   private house = new THREE.Group();
   private houseItem: Growable = { pos: new THREE.Vector3(-15, 0, -11), rotY: 0.6, scale: 1, threshold: 3.3, r: 0 };
   private windowMat = new THREE.MeshStandardMaterial({ color: '#3a3a40', emissive: '#ffb860', emissiveIntensity: 0 });
+  /** Christmas: pines instead of round trees, snow on the ground, no flowers */
+  private readonly snowy = winter();
 
   constructor() {
     const rand = mulberry32(7);
@@ -99,6 +103,15 @@ export class Land {
     this.buildFlowers(rand);
     this.buildFence();
     this.buildHouse();
+    if (this.snowy) {
+      this.flowers.visible = false;
+      addSnow(this.mountainMat, 0.45);
+      this.group.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        if (o !== this.ground && o !== this.grass && o !== this.crowns && m instanceof THREE.MeshStandardMaterial && m !== this.mountainMat && m !== this.windowMat)
+          if (!m.customProgramCacheKey().includes('|snow')) addSnow(m);
+      });
+    }
   }
 
   private buildGround(rand: () => number) {
@@ -173,7 +186,7 @@ export class Land {
     this.treeItems.sort((a, b) => a.threshold - b.threshold);
 
     this.trunks = new THREE.InstancedMesh(
-      trunkGeometry(),
+      this.snowy ? pineTrunkGeometry() : trunkGeometry(),
       new THREE.MeshStandardMaterial({ color: '#6a4e38', flatShading: true, roughness: 1 }),
       this.treeItems.length,
     );
@@ -186,7 +199,12 @@ export class Land {
       const tree = this.treeItems[t];
       const poplar = rand() < 0.25;
       const blobs: [number, number, number, number][] = [];
-      if (poplar) {
+      if (this.snowy) {
+        // tiers of a pine, the slender ones a spruce
+        const tiers = poplar ? [0.85, 0.72, 0.6, 0.48, 0.36] : [1.3, 1.05, 0.82, 0.58];
+        const step = poplar ? 0.62 : 0.72;
+        tiers.forEach((ts, b) => blobs.push([(rand() - 0.5) * 0.06, (poplar ? 0.55 : 0.75) + b * step, (rand() - 0.5) * 0.06, ts]));
+      } else if (poplar) {
         for (let b = 0; b < 4; b++) blobs.push([(rand() - 0.5) * 0.15, 2.0 + b * 0.62, (rand() - 0.5) * 0.15, 0.62 - b * 0.08]);
       } else {
         blobs.push([0, 2.95, 0, 1.0]);
@@ -208,8 +226,9 @@ export class Land {
       }
     }
     const crownMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 });
-    addSway(crownMat, this.time, 0.03);
-    this.crowns = new THREE.InstancedMesh(crownGeometry(), crownMat, this.crownItems.length);
+    addSway(crownMat, this.time, this.snowy ? 0.015 : 0.03);
+    if (this.snowy) addSnow(crownMat);
+    this.crowns = new THREE.InstancedMesh(this.snowy ? pineGeometry() : crownGeometry(), crownMat, this.crownItems.length);
     this.crowns.castShadow = true;
     this.crowns.setColorAt(0, tmpC.set('#fff'));
     this.group.add(this.crowns);
@@ -244,7 +263,8 @@ export class Land {
       this.grassItems.push({
         pos: new THREE.Vector3(x, yardHeight(x, z) - 0.02, z),
         rotY: rand() * Math.PI * 2,
-        scale: 0.6 + rand() * 0.55,
+        // in snow only every other tuft pokes through, and shorter
+        scale: (0.6 + rand() * 0.55) * (this.snowy ? (i % 2 ? 0.6 : 1e-4) : 1),
         threshold: thresholdFor(rand, near ? 2 : 3, near ? 10 : 14),
         r: rand(),
       });
@@ -359,6 +379,12 @@ export class Land {
       soil.copy(p.soilDry).lerp(p.soilLush, lush);
       soil.lerp(p.path, Math.min(1, this.groundPath[i] * 0.9 + yard * 0.15));
       soil.multiplyScalar(0.86 + n * 0.26);
+      if (p.snowCover > 0) {
+        // drifts everywhere, thinner where the yard is trodden, none on the path itself
+        const cover = clamp(p.snowCover * 1.6 - (1 - n) * 0.5 - yard * 0.35 - this.groundPath[i] * 1.2);
+        tmpC.copy(p.snow).multiplyScalar(0.94 + n * 0.08);
+        soil.lerp(tmpC, cover);
+      }
       col.setXYZ(i, soil.r, soil.g, soil.b);
     }
     col.needsUpdate = true;
@@ -382,7 +408,7 @@ export class Land {
     }
     if (this.crowns.instanceColor) this.crowns.instanceColor.needsUpdate = true;
 
-    this.windowMat.emissiveIntensity = p.moteGlow * 2.2;
+    this.windowMat.emissiveIntensity = p.lamp * 2.2;
   }
 
   update(dt: number, time: number) {
@@ -434,6 +460,38 @@ function crownGeometry() {
     v.y *= 0.82;
     p.setXYZ(i, v.x, v.y, v.z);
     const shade = 0.55 + 0.5 * smoothstep(-0.9, 0.8, v.y);
+    colors.set([shade, shade, shade], i * 3);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** A straight pine trunk; the tiers hide all but its foot. */
+function pineTrunkGeometry() {
+  const g = new THREE.CylinderGeometry(0.07, 0.16, 2.4, 6);
+  g.translate(0, 1.2, 0);
+  return g;
+}
+
+/**
+ * One tier of a pine: a steep skirt of needles under a flatter shoulder, so the snow
+ * (snow.ts) settles on the shoulder and the skirt stays dark green. Base at y = 0.
+ */
+export function pineGeometry() {
+  const profile = [new THREE.Vector2(0, 0.14), new THREE.Vector2(1, 0), new THREE.Vector2(0.72, 0.7), new THREE.Vector2(0, 1.2)];
+  const geo = new THREE.LatheGeometry(profile, 8);
+  const p = geo.attributes.position as THREE.BufferAttribute;
+  const colors = new Float32Array(p.count * 3);
+  const v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    // ragged rim, by position so shared corners move together
+    const n = Math.sin(v.x * 12.9 + v.z * 37.7) * 43758.5;
+    const k = 0.85 + 0.3 * (n - Math.floor(n));
+    if (v.y < 0.8) v.set(v.x * k, v.y - (k - 1) * 0.15, v.z * k);
+    p.setXYZ(i, v.x, v.y, v.z);
+    const shade = 0.55 + 0.45 * smoothstep(0, 1.2, v.y);
     colors.set([shade, shade, shade], i * 3);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));

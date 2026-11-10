@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import type { AnimalId } from './config';
 import type { Input } from './input';
-import { Animal, Rider, type Breed } from './world/models';
+import { Animal, Rider, hasModel, type Breed } from './world/models';
+import { Snowfall } from './world/particles';
+import { ChristmasTree, TREE_AT, pineWoods } from './world/xmas';
+import { winter } from './season';
 import { makePalette, samplePalette } from './world/palette';
 import { Sky } from './world/sky';
 import { platform } from './platform';
@@ -15,6 +18,7 @@ const TILE = 64;
 const grassVert = /* glsl */ `
 uniform float uTime;
 uniform vec3 uCenter;
+uniform float uHeight;
 attribute vec3 aOffset; // x, z in [0, TILE), w = random
 varying float vH;
 varying float vRand;
@@ -26,7 +30,7 @@ void main() {
   float h = position.y;
   vH = h;
   vRand = r;
-  float height = 0.55 + r * 0.6;
+  float height = (0.55 + r * 0.6) * uHeight;
   float ang = r * 40.0;
   vec2 dir = vec2(cos(ang), sin(ang));
   vec3 p = vec3(position.x * dir.x, h * height, position.x * dir.y);
@@ -90,7 +94,14 @@ export class Freedom {
     uBase: { value: new THREE.Color('#4f7a36') },
     uTip: { value: new THREE.Color('#c9d77a') },
     uSun: { value: new THREE.Color('#ffd08a') },
+    uHeight: { value: 1 },
   };
+  /** Christmas: snow, pines, the tree and its stags, an evening sky */
+  private readonly snowy = winter();
+  private tree: ChristmasTree | null = null;
+  private snowfall: Snowfall | null = null;
+  private pixelRatio = { value: 1 };
+  private time = { value: 0 };
   private ground: THREE.Mesh;
   private rider: Rider | null = null;
   private heading = 0;
@@ -99,19 +110,28 @@ export class Freedom {
   private herd: { animal: Animal; grazing: boolean }[] = [];
   private flowers: THREE.InstancedMesh;
   private t = 0;
-  readonly bloom = 0.45;
+  readonly bloom = this.snowy ? 0.5 : 0.45;
   readonly exposure = 1.05;
 
   constructor(private input: Input) {
-    const p = samplePalette(3.35, makePalette());
-    p.sunElevation = 6;
+    // at Christmas the sun is just going down behind the tree and the first stars are out
+    const p = samplePalette(this.snowy ? 3.85 : 3.35, makePalette());
+    p.sunElevation = this.snowy ? 1.5 : 6;
     this.sky.apply(p, Math.PI / 2); // sun straight ahead
+    if (this.snowy) this.sky.material.uniforms.uStars.value = 0.9;
     this.scene.add(this.sky.mesh, this.camera);
     this.scene.fog = new THREE.Fog(p.skyHorizon, 40, 260);
 
     const sun = new THREE.DirectionalLight(p.sun, 2.6);
     sun.position.copy(this.sky.sunDir).multiplyScalar(100);
-    this.scene.add(sun, new THREE.HemisphereLight(p.hemiSky, '#5a6a3a', 0.9));
+    this.scene.add(sun, new THREE.HemisphereLight(p.hemiSky, this.snowy ? p.hemiGround : '#5a6a3a', 0.9));
+    if (this.snowy) {
+      // snow underfoot (the ground shader darkens by up to a quarter), straw poking through
+      const tint = new THREE.Color();
+      // the ground shader isn't lit, so tint the snow by the sky's light (blue at night)
+      this.uniforms.uBase.value.copy(p.snow).multiply(tint.set('#ffffff').lerp(p.hemiSky, 0.45)).multiplyScalar(0.95);
+      this.uniforms.uSun.value.copy(p.sun);
+    }
 
     const fogUniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog]);
     const groundMat = new THREE.ShaderMaterial({
@@ -144,13 +164,18 @@ export class Freedom {
     geo.index = blade.index;
     geo.setAttribute('position', blade.getAttribute('position'));
     geo.setAttribute('aOffset', new THREE.InstancedBufferAttribute(offsets, 3));
-    geo.instanceCount = count;
+    geo.instanceCount = this.snowy ? Math.round(count * 0.08) : count;
+    // the blades share uBase with the ground, so in snow they get their own colours
+    const bladeUniforms = this.snowy
+      ? { ...this.uniforms, uBase: { value: p.soilLush.clone().multiplyScalar(0.8) }, uTip: { value: p.soilDry.clone() } }
+      : this.uniforms;
+    if (this.snowy) this.uniforms.uHeight.value = 0.45;
     const grassMat = new THREE.ShaderMaterial({
       vertexShader: grassVert,
       fragmentShader: grassFrag,
       side: THREE.DoubleSide,
       fog: true,
-      uniforms: { ...fogUniforms, ...this.uniforms },
+      uniforms: { ...fogUniforms, ...bladeUniforms },
     });
     // fog_fragment needs the depth varying; feed it from the grass vertex shader too
     grassMat.vertexShader = grassMat.vertexShader
@@ -176,6 +201,20 @@ export class Freedom {
       this.flowers.setColorAt(i, colors[Math.floor(rand() * colors.length)]);
     }
     this.scene.add(this.flowers);
+
+    if (this.snowy) {
+      this.flowers.visible = false;
+      this.scene.add(pineWoods(p.foliage));
+      this.tree = new ChristmasTree(p.foliage);
+      this.scene.add(this.tree.group);
+      this.snowfall = new Snowfall(this.time, this.pixelRatio);
+      this.snowfall.set(p.snow, 0.4);
+      this.scene.add(this.snowfall.points);
+    }
+  }
+
+  setPixelRatio(r: number) {
+    this.pixelRatio.value = r;
   }
 
   /** Begin the ending as `animal`; previously freed animals graze nearby. */
@@ -198,6 +237,21 @@ export class Freedom {
       this.scene.add(a.root);
       this.herd.push({ animal: a, grazing });
     });
+    // stags standing round the tree, some grazing at the snow
+    if (this.snowy && hasModel('stag')) {
+      for (let i = 0; i < 5; i++) {
+        const a = new Animal('stag');
+        const ang = (i / 5) * Math.PI * 2 + rand() * 0.6 - 1.2;
+        const r = 5.5 + rand() * 5;
+        const x = TREE_AT.x + Math.cos(ang) * r, z = TREE_AT.z + Math.sin(ang) * r;
+        a.root.position.set(x, meadowHeight(x, z), z);
+        a.root.rotation.y = rand() * Math.PI * 2;
+        a.play(rand() < 0.5 ? 'Eating' : 'Idle', 0);
+        a.update(rand() * 3);
+        this.scene.add(a.root);
+        this.herd.push({ animal: a, grazing: true });
+      }
+    }
     this.heading = 0;
     this.speed = 7;
     this.t = 0;
@@ -226,6 +280,9 @@ export class Freedom {
 
     this.uniforms.uCenter.value.set(cam.position.x, 0, cam.position.z);
     this.sky.update(time, cam.position);
+    this.time.value = time;
+    this.tree?.update(time);
+    this.snowfall?.center.set(cam.position.x, cam.position.y - 4, cam.position.z);
 
     if (this.rider) {
       this.rider.place(cam.position, Math.atan2(-dir.x, -dir.z));

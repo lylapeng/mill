@@ -6,15 +6,21 @@ import { loadRun, newRun, saveRun, type RunState } from './save';
 import { Ui } from './ui';
 import { platform } from './platform';
 import { Animal, loadModels } from './world/models';
+import { setSeason } from './season';
+import { roster } from './minigame/stag';
 
 // The web page: DOM UI, keyboard and mouse.
+
+// ?season=xmas previews the Christmas snow on any date, ?season=none turns it off
+const seasonParam = new URLSearchParams(location.search).get('season');
+if (seasonParam) setSeason(seasonParam === 'xmas' ? 'xmas' : null);
 
 // the animals are the only files to fetch; wait for them before building the world
 const loading = document.createElement('div');
 loading.className = 'loading';
 loading.textContent = '一圈，又一圈';
 document.body.append(loading);
-await loadModels();
+await loadModels(['stag']);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 document.body.prepend(renderer.domElement);
@@ -23,6 +29,8 @@ const input = new Input();
 attachDom(input, renderer.domElement);
 const ui = new Ui(document.body);
 const app = new App(renderer, ui, input);
+// the stag as on WeChat: it comes once some animal has reached the grassland (and to everyone at Christmas)
+app.roster = roster;
 
 function resize() {
   app.resize(window.innerWidth, window.innerHeight, Math.min(window.devicePixelRatio, platform.quality.maxPixelRatio));

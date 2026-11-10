@@ -67,6 +67,47 @@ void main() {
   gl_FragColor = vec4(uColor * (0.9 + 0.2 * c.y), a * uOpacity);
 }`;
 
+// Christmas snowfall: flakes drift down and sway; the near ones are capped in size so a
+// flake passing the eye doesn't fill the screen.
+const snowVert = /* glsl */ `
+uniform float uTime;
+uniform float uPixelRatio;
+uniform float uAmount;
+uniform vec3 uCenter;
+attribute vec4 aSeed;
+varying float vFade;
+void main() {
+  // light snow is fewer flakes, not fainter ones
+  if (aSeed.z > uAmount) { gl_PointSize = 0.0; gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+  vec3 p = position;
+  float speed = 0.55 + aSeed.x * 0.5;
+  p.y = mod(p.y - uTime * speed, 12.0);
+  float sway = uTime * (0.4 + aSeed.w * 0.5) + aSeed.y * 6.28;
+  p.x += sin(sway) * 0.6 + uTime * 0.12;
+  p.z += cos(sway * 0.8 + aSeed.z * 6.28) * 0.5;
+  // a 52 m box of flakes that wraps around uCenter, so it can follow a running camera
+  p.xz = uCenter.xz + mod(p.xz - uCenter.xz + 26.0, 52.0) - 26.0;
+  p.y += uCenter.y;
+  // fade in at the top and out at the ground, so the wrap can't be seen
+  vFade = smoothstep(0.0, 0.6, p.y - uCenter.y) * (1.0 - smoothstep(10.5, 12.0, p.y - uCenter.y));
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  gl_PointSize = min(uPixelRatio * (2.6 + aSeed.w * 2.6) * (10.0 / -mv.z), 16.0 * uPixelRatio);
+  gl_Position = projectionMatrix * mv;
+}`;
+
+const snowFrag = /* glsl */ `
+uniform vec3 uColor;
+uniform float uOpacity;
+varying float vFade;
+void main() {
+  float d = length(gl_PointCoord - 0.5);
+  float a = 1.0 - smoothstep(0.2, 0.5, d);
+  if (a < 0.01) discard;
+  gl_FragColor = vec4(uColor, a * uOpacity * vFade);
+}`;
+
+const tmp = new THREE.Color();
+
 function cloud(count: number, radius: number, yMin: number, yMax: number, seed: number) {
   const rand = mulberry32(seed);
   const pos = new Float32Array(count * 3);
@@ -83,10 +124,45 @@ function cloud(count: number, radius: number, yMin: number, yMax: number, seed: 
   return geo;
 }
 
+/** Falling snow, one draw call. Follows `center` (the yard leaves it at the origin). */
+export class Snowfall {
+  readonly points: THREE.Points;
+  readonly center = new THREE.Vector3();
+  private material: THREE.ShaderMaterial;
+
+  constructor(time: { value: number }, pixelRatio: { value: number }) {
+    this.material = new THREE.ShaderMaterial({
+      vertexShader: snowVert,
+      fragmentShader: snowFrag,
+      transparent: true,
+      depthWrite: false,
+      uniforms: {
+        uTime: time,
+        uPixelRatio: pixelRatio,
+        uCenter: { value: this.center },
+        uColor: { value: new THREE.Color() },
+        uOpacity: { value: 0.9 },
+        uAmount: { value: 0 },
+      },
+    });
+    this.points = new THREE.Points(cloud(1800, 26, 0, 12, 31), this.material);
+    this.points.frustumCulled = false;
+    this.points.visible = false;
+  }
+
+  /** `amount` 0..1: the share of flakes that fall */
+  set(color: THREE.Color, amount: number) {
+    this.material.uniforms.uColor.value.copy(color);
+    this.material.uniforms.uAmount.value = amount;
+    this.points.visible = amount > 0.01;
+  }
+}
+
 export class Particles {
   readonly group = new THREE.Group();
   private moteMat: THREE.ShaderMaterial;
   private petalMat: THREE.ShaderMaterial;
+  private snow: Snowfall;
   private time = { value: 0 };
   private pixelRatio = { value: 1 };
 
@@ -123,7 +199,8 @@ export class Particles {
     });
     const petals = new THREE.Points(cloud(320, 24, 0, 9, 23), this.petalMat);
     petals.frustumCulled = false;
-    this.group.add(motes, petals);
+    this.snow = new Snowfall(this.time, this.pixelRatio);
+    this.group.add(motes, petals, this.snow.points);
   }
 
   setPixelRatio(r: number) {
@@ -137,6 +214,7 @@ export class Particles {
     m.uGlow.value = p.moteGlow;
     this.petalMat.uniforms.uColor.value.copy(p.blossom);
     this.petalMat.uniforms.uOpacity.value = p.petals * 0.9;
+    this.snow.set(tmp.copy(p.snow).lerp(p.hemiSky, 0.15), p.snowfall);
   }
 
   update(time: number) {

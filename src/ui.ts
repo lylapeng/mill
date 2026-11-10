@@ -203,6 +203,7 @@ export class Ui implements GameUi {
       shade.append(sil);
       el.append(shade, h('span', 'portrait-name', a.name));
       if (opts.freed.includes(a.id)) el.append(h('span', 'portrait-free', '曾走进草原'));
+      else if (opts.fresh === a.id) el.append(h('span', 'portrait-free', TEXT.freshNote));
       el.addEventListener('click', () => pick(a.id, el));
       portraits.push(el);
       herd.append(el);

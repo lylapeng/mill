@@ -20,6 +20,8 @@ uniform vec3 uSunColor;
 uniform vec3 uCloudTint;
 uniform float uCloudCover;
 uniform float uTime;
+uniform float uStars;
+uniform float uAurora;
 varying vec3 vDir;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -48,6 +50,30 @@ void main() {
   col += uSunColor * (pow(sd, 6.0) * 0.22 + pow(sd, 48.0) * 0.5);
   col += uSunColor * 0.1 * exp(-up * up * 40.0) * (0.4 + 0.6 * sd);
   col += uSunColor * smoothstep(0.99935, 0.9997, sd) * 5.0;
+
+  if (uStars > 0.0 && d.y > 0.0) {
+    // sparse stars, higher up only, each twinkling at its own pace; under the clouds below
+    vec3 cell = floor(d * 260.0);
+    float h = hash(cell.xy + cell.z * 17.31);
+    float tw = 0.6 + 0.4 * sin(uTime * (1.0 + h * 3.0) + h * 40.0);
+    col += vec3(1.0, 0.96, 0.9) * step(0.9975, h) * tw * smoothstep(0.08, 0.45, d.y) * uStars;
+  }
+
+  if (uAurora > 0.0 && d.y > 0.0) {
+    // curtains of light: a band that wanders in height around the sky, hung with fine
+    // vertical rays that drift sideways; green at the foot, violet where it fades out on top
+    float az = atan(d.z, d.x);
+    float foot = 0.16 + 0.07 * sin(az * 2.0 + uTime * 0.03) + 0.04 * sin(az * 5.0 - uTime * 0.05);
+    float above = d.y - foot;
+    float curtain = smoothstep(-0.02, 0.03, above) * exp(-max(above, 0.0) * 5.0);
+    // noise sampled on a circle, so the rays join up all the way round (atan jumps at the back)
+    vec2 ring = normalize(d.xz + vec2(1e-5, 0.0));
+    float rays = noise(ring * 4.2 + vec2(uTime * 0.02, uTime * 0.013)) * 0.7 + noise(ring * 11.0 + vec2(-uTime * 0.03, 3.0)) * 0.3;
+    float sheet = 0.55 + 0.45 * sin(az * 3.0 + uTime * 0.07);
+    float glow = curtain * (0.25 + rays * rays * 1.2) * sheet;
+    vec3 auroraCol = mix(vec3(0.25, 1.0, 0.6), vec3(0.6, 0.35, 1.0), smoothstep(0.0, 0.3, above));
+    col += auroraCol * glow * uAurora * 1.15;
+  }
 
   if (d.y > 0.0) {
     vec2 uv = d.xz / (d.y + 0.15) * 1.1 + vec2(uTime * 0.0035, uTime * 0.0012);
@@ -84,6 +110,8 @@ export class Sky {
         uCloudTint: { value: new THREE.Color() },
         uCloudCover: { value: 0.5 },
         uTime: { value: 0 },
+        uStars: { value: 0 },
+        uAurora: { value: 0 },
       },
     });
     this.mesh = new THREE.Mesh(new THREE.SphereGeometry(450, 48, 24), this.material);
@@ -98,6 +126,8 @@ export class Sky {
     u.uSunColor.value.copy(p.sun);
     u.uCloudTint.value.copy(p.cloudTint);
     u.uCloudCover.value = p.cloudCover;
+    u.uAurora.value = p.aurora;
+    u.uStars.value = Math.max(u.uStars.value, p.aurora);
     const el = THREE.MathUtils.degToRad(p.sunElevation);
     this.sunDir.set(Math.cos(el) * Math.cos(sunAzimuth), Math.sin(el), Math.cos(el) * Math.sin(sunAzimuth));
   }

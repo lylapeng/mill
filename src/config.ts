@@ -1,6 +1,8 @@
 // All tunable numbers and player-facing text live here.
 // Pacing was tuned with a simple simulation (see AGENTS.md → 数值).
 
+import { winter } from './season';
+
 export type AnimalId = 'ox' | 'horse' | 'donkey' | 'stag';
 
 export interface AnimalDef {
@@ -158,6 +160,15 @@ export const birdStage = (sceneLevel: number, millLevel: number): BirdStage => {
 
 export const MILL_TIERS = ['石磨', '木亭磨', '铜轮磨', '蒸汽磨', '星辉磨'];
 export const SCENE_TIERS = ['黄土', '初晴', '青野', '金暮', '流霞'];
+/** Christmas (season.ts): the same steps, in snow */
+export const WINTER_SCENE_TIERS = ['阴雪', '雪停', '晴雪', '雪暮', '极光'];
+export const WINTER_SCENE_LINES = [
+  '',
+  '雪停了，云也散了一些。',
+  '天晴得发蓝，雪地亮得睁不开眼。',
+  '太阳低下来，雪地镀了一层金。',
+  '夜里，北边的天上挂起了绿色的光。',
+];
 
 export const TEXT = {
   title: '拉磨',
@@ -210,5 +221,8 @@ export const TEXT = {
   pityHint: '草原比上次清楚了一些。',
   stumble: '乱了步子',
   snap: '绳子断了。',
-  freeLines: ['你自由了。', '这片草原，是真的。'],
+  // the grassland lies under snow at Christmas
+  get freeLines() {
+    return ['你自由了。', winter() ? '这片雪原，是真的。' : '这片草原，是真的。'];
+  },
 };

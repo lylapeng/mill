@@ -34,8 +34,8 @@ export default defineConfig({
         mkdirSync(`${out}/models`, { recursive: true });
         mkdirSync(`${out}/fonts`, { recursive: true });
         cpSync('xhs/index.html', `${out}/index.html`);
-        // the shared models, and the stag that only this version has
-        const models = ['public/models', 'xhs/models'].flatMap((dir) => readdirSync(dir).filter((f) => f.endsWith('.glb')).map((f) => [dir, f]));
+        // the models, the stag among them
+        const models = readdirSync('public/models').filter((f) => f.endsWith('.glb')).map((f) => ['public/models', f]);
         for (const [dir, f] of models) {
           const b64 = readFileSync(`${dir}/${f}`).toString('base64');
           writeFileSync(

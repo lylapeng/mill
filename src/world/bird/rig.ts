@@ -11,11 +11,12 @@ export interface Pose {
   tuck: number;
 }
 export const perch = (): Pose => ({
-  // upright, as the standing sprite is: the chest carries the curve and the belly tucks away under it.
-  // The head turns back to level, mostly at the neck
-  lift: 0.525, pitch: -1.012, roll: 0,
+  // raised about 43 degrees, as tits sit on a twig in photos: the chest carries the curve, the belly tucks away
+  // under it, and the folded wing runs back along the line of the back to the tail. (It was 58, which hung the wing
+  // down the flank like a cape.) The head turns back to level, mostly at the neck
+  lift: 0.525, pitch: -0.75, roll: 0,
   neckX: SEAT.neckX, headX: SEAT.headX, headY: 0, headZ: 0, jaw: 0,
-  tailX: 0.55, tailY: 0, fan: 0.06,
+  tailX: 0.3, tailY: 0, fan: 0.06,
   open: 0, flap: 0, bend: 0, sweep: 0,
   feet: [{ x: 0.115, y: 0, z: 0.053 }, { x: -0.115, y: 0, z: -0.053 }],
   tuck: 0,

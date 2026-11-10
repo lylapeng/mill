@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { clamp } from '../util';
+import { winter } from '../season';
 
 // One palette per scene tier. The world blends between neighbours, so each
 // scene level shifts the mood a little instead of jumping every fourth level.
@@ -35,6 +36,15 @@ interface PaletteDef {
   petals: number;
   bloom: number;
   exposure: number;
+  /** 0..1 how much snow lies on the ground and on everything facing up */
+  snowCover?: number;
+  snow?: string;
+  /** 0..1 falling snow */
+  snowfall?: number;
+  /** 0..1 lit windows; follows the fireflies unless given */
+  lamp?: number;
+  /** 0..1 northern lights (and stars) in the sky */
+  aurora?: number;
 }
 
 const DEFS: PaletteDef[] = [
@@ -80,25 +90,81 @@ const DEFS: PaletteDef[] = [
   },
 ];
 
+// Christmas (season.ts): the same five steps of getting better, told in snow. Grey and
+// trodden at first, then the snow stops, then a clear blue day, gold on the snow, and at
+// the end a clear night under the northern lights, windows lit. soilDry/soilLush colour the straw that pokes
+// through; foliage is pine.
+const WINTER: PaletteDef[] = [
+  {
+    // 阴雪 — overcast, wet and trodden, still snowing
+    skyTop: '#9aa2a9', skyHorizon: '#cfd1cf', sun: '#f2efe6', sunElevation: 24, sunIntensity: 1.2,
+    hemiSky: '#c6cbcf', hemiGround: '#8c877e', hemiIntensity: 1.0, fogNear: 12, fogFar: 120,
+    cloudCover: 0.9, cloudTint: '#c4c7c8', soilDry: '#7c7262', soilLush: '#6e6a5c', lushness: 0.05,
+    path: '#77685a', foliage: '#41594a', blossom: '#ffffff', blossomMix: 0, mountain: '#a6a9ab',
+    mote: '#ffffff', moteSize: 1.4, moteGlow: 0, petals: 0, bloom: 0.1, exposure: 0.95,
+    snowCover: 0.7, snow: '#d6d8d6', snowfall: 1, lamp: 0,
+  },
+  {
+    // 雪停 — the snow stops, the clouds part
+    skyTop: '#7b9cc2', skyHorizon: '#e2e6e8', sun: '#fff3e2', sunElevation: 26, sunIntensity: 2.0,
+    hemiSky: '#c2d2e4', hemiGround: '#9a968f', hemiIntensity: 0.9, fogNear: 24, fogFar: 190,
+    cloudCover: 0.55, cloudTint: '#f2f4f6', soilDry: '#8a7c66', soilLush: '#7c7a62', lushness: 0.2,
+    path: '#8c7e6c', foliage: '#3c5e48', blossom: '#ffffff', blossomMix: 0, mountain: '#b2becb',
+    mote: '#ffffff', moteSize: 1.6, moteGlow: 0, petals: 0, bloom: 0.13, exposure: 0.98,
+    snowCover: 0.88, snow: '#eceff1', snowfall: 0.3, lamp: 0,
+  },
+  {
+    // 晴雪 — high blue sky over fresh snow, glints in the air
+    skyTop: '#3f7ccc', skyHorizon: '#e6eff5', sun: '#fff8ee', sunElevation: 24, sunIntensity: 2.4,
+    hemiSky: '#b4cfee', hemiGround: '#a6adb4', hemiIntensity: 0.8, fogNear: 40, fogFar: 240,
+    cloudCover: 0.3, cloudTint: '#ffffff', soilDry: '#8e7e64', soilLush: '#807c62', lushness: 0.25,
+    path: '#9c8f80', foliage: '#365f48', blossom: '#ffffff', blossomMix: 0, mountain: '#a6bbd2',
+    mote: '#ffffff', moteSize: 1.8, moteGlow: 0.2, petals: 0, bloom: 0.18, exposure: 0.98,
+    snowCover: 1, snow: '#f6f8fa', snowfall: 0.06, lamp: 0,
+  },
+  {
+    // 雪暮 — low gold sun across the snow
+    skyTop: '#3c5ea4', skyHorizon: '#ffcf9e', sun: '#ffc27e', sunElevation: 8, sunIntensity: 2.8,
+    hemiSky: '#9fb2dc', hemiGround: '#9a8a82', hemiIntensity: 0.7, fogNear: 40, fogFar: 230,
+    cloudCover: 0.4, cloudTint: '#ffd3b2', soilDry: '#94785a', soilLush: '#847a5c', lushness: 0.25,
+    path: '#ad9078', foliage: '#3d6048', blossom: '#ffffff', blossomMix: 0, mountain: '#9a8fb0',
+    mote: '#ffe9c4', moteSize: 2.0, moteGlow: 0.3, petals: 0, bloom: 0.3, exposure: 1.02,
+    snowCover: 1, snow: '#fdf6ee', snowfall: 0.15, lamp: 0.45,
+  },
+  {
+    // 极光 — a clear night: the northern lights over the snow, the moon low, lit windows
+    skyTop: '#060c22', skyHorizon: '#24345a', sun: '#b9c8ff', sunElevation: 14, sunIntensity: 0.9,
+    hemiSky: '#5f9aa8', hemiGround: '#3a4058', hemiIntensity: 0.9, fogNear: 40, fogFar: 260,
+    cloudCover: 0.12, cloudTint: '#3a4a70', soilDry: '#5e5a5a', soilLush: '#545450', lushness: 0.2,
+    path: '#5c5866', foliage: '#2a4640', blossom: '#ffffff', blossomMix: 0, mountain: '#2c3656',
+    mote: '#c8ffe4', moteSize: 2.2, moteGlow: 0.5, petals: 0, bloom: 0.42, exposure: 1.1,
+    snowCover: 1, snow: '#dfe8f4', snowfall: 0.05, lamp: 1, aurora: 1,
+  },
+];
+
 const COLOR_KEYS = [
   'skyTop', 'skyHorizon', 'sun', 'hemiSky', 'hemiGround', 'cloudTint', 'soilDry', 'soilLush',
-  'path', 'foliage', 'blossom', 'mountain', 'mote',
+  'path', 'foliage', 'blossom', 'mountain', 'mote', 'snow',
 ] as const;
 const NUMBER_KEYS = [
   'sunElevation', 'sunIntensity', 'hemiIntensity', 'fogNear', 'fogFar', 'cloudCover', 'lushness',
-  'blossomMix', 'moteSize', 'moteGlow', 'petals', 'bloom', 'exposure',
+  'blossomMix', 'moteSize', 'moteGlow', 'petals', 'bloom', 'exposure', 'snowCover', 'snowfall', 'lamp', 'aurora',
 ] as const;
 
 type ColorKey = (typeof COLOR_KEYS)[number];
 type NumberKey = (typeof NUMBER_KEYS)[number];
 export type Palette = Record<ColorKey, THREE.Color> & Record<NumberKey, number>;
 
-const parsed = DEFS.map((d) => {
-  const p = {} as Palette;
-  for (const k of COLOR_KEYS) p[k] = new THREE.Color(d[k]);
-  for (const k of NUMBER_KEYS) p[k] = d[k];
-  return p;
-});
+const parse = (defs: PaletteDef[]) =>
+  defs.map((d) => {
+    const full = { snowCover: 0, snow: '#ffffff', snowfall: 0, lamp: d.moteGlow, aurora: 0, ...d };
+    const p = {} as Palette;
+    for (const k of COLOR_KEYS) p[k] = new THREE.Color(full[k]);
+    for (const k of NUMBER_KEYS) p[k] = full[k];
+    return p;
+  });
+const SUMMER = parse(DEFS);
+const SNOWY = parse(WINTER);
 
 export function makePalette(): Palette {
   return samplePalette(0, {} as Palette);
@@ -109,6 +175,7 @@ export function samplePalette(t: number, out: Palette): Palette {
   const tc = clamp(t, 0, DEFS.length - 1);
   const i = Math.min(DEFS.length - 2, Math.floor(tc));
   const f = tc - i;
+  const parsed = winter() ? SNOWY : SUMMER;
   const a = parsed[i];
   const b = parsed[i + 1];
   for (const k of COLOR_KEYS) {

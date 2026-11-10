@@ -214,7 +214,7 @@ export interface Host {
 export interface Leg { thigh: THREE.Bone; shank: THREE.Bone; foot: THREE.Bone; hip: THREE.Vector3; side: number }
 
 // How the head sits on the perch, relative to the body. Shared with rig.ts: seatHead() is measured in this pose.
-export const SEAT = { neckX: 0.75, headX: 0.26, headY: 0.03, headZ: 0.085 };
+export const SEAT = { neckX: 0.55, headX: 0.2, headY: 0.03, headZ: 0.085 };
 const NECK_AT = [0.08, 0.22], HEAD_AT = [0.13, 0.33]; // y, z of the bones as bound
 const FACE = { eye: 0.471, axis: 0.142, unit: 0.139 }; // the eye's z, the bill's y, and eye to bill tip
 const SEAT_FROM = 0.2, SEAT_TO = 0.44, SEAT_CHIN = 0.51; // the stretch of body, in z, that the join is redrawn over
@@ -222,6 +222,8 @@ const SEAT_FROM = 0.2, SEAT_TO = 0.44, SEAT_CHIN = 0.51; // the stretch of body,
 export const SHOULDER = V(0.175, 0.12, 0.16);
 export const WRIST = V(0.4, 0, 0.03);
 export const THIGH = 0.16, SHANK = 0.18;
+/** the flight feathers' length, folded and open; 1 is the first build */
+export const WING_LENGTH = 1.15;
 
 function basis(dir: THREE.Vector3, normal: THREE.Vector3) {
   const z = dir.clone().negate().normalize();
@@ -426,9 +428,10 @@ export function buildSongbird() {
   const fStart = g.begin();
   const hosts: Host[] = [];
   const spec: { kind: 'P' | 'S' | 'T'; L: number; off: THREE.Vector3; fan: number }[] = [];
-  for (let i = 0; i < 3; i++) spec.push({ kind: 'T', L: 0.4 - i * 0.03, off: V(0.09 - i * 0.04, 0, -0.03), fan: 0.22 + i * 0.1 });
-  for (let i = 0; i < 6; i++) spec.push({ kind: 'S', L: 0.47 + i * 0.006, off: V(0.13 + i * 0.05, 0, -0.03 + i * 0.012), fan: 0.1 - i * 0.05 });
-  for (let i = 0; i < 9; i++) spec.push({ kind: 'P', L: 0.62 - Math.max(0, i - 5) * 0.035, off: V(i * 0.026, 0, 0.0 + i * 0.002), fan: -0.2 - i * 0.135 });
+  const WL = WING_LENGTH;
+  for (let i = 0; i < 3; i++) spec.push({ kind: 'T', L: (0.4 - i * 0.03) * WL, off: V(0.09 - i * 0.04, 0, -0.03), fan: 0.22 + i * 0.1 });
+  for (let i = 0; i < 6; i++) spec.push({ kind: 'S', L: (0.47 + i * 0.006) * WL, off: V(0.13 + i * 0.05, 0, -0.03 + i * 0.012), fan: 0.1 - i * 0.05 });
+  for (let i = 0; i < 9; i++) spec.push({ kind: 'P', L: (0.62 - Math.max(0, i - 5) * 0.035) * WL, off: V(i * 0.026, 0, 0.0 + i * 0.002), fan: -0.2 - i * 0.135 });
   // inner to outer, as the folded wing stacks
   const order = [...spec.slice(0, 3).reverse(), ...spec.slice(3), ...spec.slice(9)].filter((v, i, a) => a.indexOf(v) === i);
 
@@ -442,15 +445,19 @@ export function buildSongbird() {
       const row = h.kind === 'P' ? K.Primary : h.kind === 'S' ? K.Secondary : K.Tertial;
       featherMesh(g, bi, h.L, W, row, { mirror, curve: 0.06 });
       if (h.kind !== 'P') {
+        // the coverts start no further forward than the folded wing's leaf (the shield) reaches, so it hides them:
+        // reaching past it, their pointed fronts stood out along the shoulder as a sawtooth
         featherMesh(g, bi, 0.27, 0.1, K.Greater, { y: 0.008, z: 0.02, mirror, curve: 0.05, round: true });
-        featherMesh(g, bi, 0.17, 0.09, K.Covert, { y: 0.013, z: 0.05, mirror, curve: 0.05, round: true });
-        featherMesh(g, bi, 0.13, 0.085, K.Covert, { y: 0.018, z: 0.1, mirror, curve: 0.05, round: true });
+        featherMesh(g, bi, 0.17, 0.09, K.Covert, { y: 0.013, z: 0.0, mirror, curve: 0.05, round: true });
+        featherMesh(g, bi, 0.13, 0.085, K.Covert, { y: 0.018, z: 0.03, mirror, curve: 0.05, round: true });
       } else {
-        featherMesh(g, bi, 0.21, 0.07, K.PrimaryCovert, { y: 0.008, z: 0.02, mirror, curve: 0.05, round: true });
+        featherMesh(g, bi, 0.21, 0.07, K.PrimaryCovert, { y: 0.004, z: -0.05, mirror, curve: 0.05, round: true });
       }
-      // folded: lying on the flank, tertials outermost and highest
+      // folded: lying on the flank, tertials outermost and highest. The roots sit just inside the body, so the
+      // back's surface covers them as the mantle does on a real bird; standing out, their square ends stacked into
+      // a sawtooth along the shoulder and the wing read as a board stuck on
       const ry = 0.14 - 0.165 * f, rz = 0.04 + 0.135 * f;
-      const rx = sideX(ry, rz) + 0.012 + 0.018 * (1 - f);
+      const rx = sideX(ry, rz) - 0.014 + 0.018 * (1 - f);
       const fold = V(rx, ry, rz);
       const ty = 0.085 - 0.075 * f;
       const tz = rz - h.L * 0.98;
@@ -478,10 +485,10 @@ export function buildSongbird() {
   const shields: { bone: THREE.Bone; pos: THREE.Vector3; q: THREE.Quaternion }[] = [];
   for (const mirror of [false, true]) {
     const bi = add(`shield${mirror ? 'R' : 'L'}`, body);
-    featherMesh(g, bi, 0.42, 0.2, K.Shield, { mirror, curve: 0.07, round: true });
+    featherMesh(g, bi, 0.42 * (1 + (WL - 1) * 0.6), 0.2, K.Shield, { mirror, curve: 0.07, round: true });
     const h = hosts[7];
     const n = V(0, 1, 0).applyQuaternion(h.foldQ), back = V(0, 0, 1).applyQuaternion(h.foldQ);
-    const pos = h.fold.clone().addScaledVector(n, 0.04).addScaledVector(back, 0.075);
+    const pos = h.fold.clone().addScaledVector(n, 0.032).addScaledVector(back, 0.075);
     const q = h.foldQ.clone();
     if (mirror) { pos.x = -pos.x; q.set(q.x, -q.y, -q.z, q.w); }
     shields.push({ bone: bones[bi], pos, q });

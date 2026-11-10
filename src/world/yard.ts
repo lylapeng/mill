@@ -7,6 +7,8 @@ import { makePalette, samplePalette, sceneLevelToT, type Palette } from './palet
 import { Sky } from './sky';
 import { platform } from '../platform';
 import { damp } from '../util';
+import { winter } from '../season';
+import { addSnow, snowUniforms } from './snow';
 
 // The mill yard: sky, light, land, mill, particles and the mirage, kept in one scene.
 
@@ -58,6 +60,19 @@ export class Yard {
     // the environment map is rendered from a copy of the sky only
     const envSky = new THREE.Mesh(this.sky.mesh.geometry, this.sky.material);
     this.envScene.add(envSky);
+
+    // Christmas: snow on the mill's stones, beams and roofs, not on the trodden flagstones,
+    // the flour or anything that glows
+    if (winter()) {
+      const seen = new Set<THREE.Material>();
+      this.mill.group.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        if (!(m instanceof THREE.MeshStandardMaterial) || seen.has(m)) return;
+        seen.add(m);
+        if (m.metalness > 0.5 || m.emissive.getHex() !== 0 || m.color.getHexString() === 'f6f1e6' || o instanceof THREE.InstancedMesh) return;
+        addSnow(m);
+      });
+    }
   }
 
   /** Bloom strength and exposure follow the palette; main.ts reads them. */
@@ -94,6 +109,8 @@ export class Yard {
     this.hemi.intensity = p.hemiIntensity;
     this.land.applyPalette(p);
     this.particles.applyPalette(p);
+    snowUniforms.uSnow.value = p.snowCover;
+    snowUniforms.uSnowColor.value.copy(p.snow);
     this.mirage.setHaze(p.skyHorizon);
     this.envDirty = true;
   }

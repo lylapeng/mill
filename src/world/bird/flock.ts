@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { COATS, SPECIES, type Species } from './coats';
+import { COATS, SPECIES, species, type Species } from './coats';
 
 // A few small birds crossing the sky. They're specks at this range, so each is a handful of
 // triangles and not the full songbird. The path hangs off where the player is looking, so a
@@ -118,9 +118,10 @@ export class Flock {
     this.members.forEach((m, i) => {
       m.group.visible = i < this.count;
       // winter flocks of these birds really are mixed
-      const species = SPECIES[Math.floor(Math.random() * SPECIES.length)];
-      m.wear(species, this.wings);
-      if (i < this.count) who.push(species);
+      const pool = species();
+      const kind = pool[Math.floor(Math.random() * pool.length)];
+      m.wear(kind, this.wings);
+      if (i < this.count) who.push(kind);
       m.group.scale.setScalar(COATS.bluetit.size * pass.scale);
       m.lag = i * 0.055 + Math.random() * 0.03;
       m.out = (Math.random() - 0.5) * 0.14;

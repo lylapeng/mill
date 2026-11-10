@@ -3,7 +3,8 @@ import type { Sound } from '../../audio';
 import { WALK_RADIUS, type BirdStage } from '../../config';
 import type { Mill } from '../mill';
 import { Behave, type Act } from './behave';
-import { COATS, SPECIES, type Species } from './coats';
+import { COATS, species, type Species } from './coats';
+import { winter } from '../../season';
 import { Flock, type Pass } from './flock';
 import { apply } from './rig';
 import { buildSongbird, type Songbird } from './songbird';
@@ -47,6 +48,7 @@ export class BirdVisit {
   private species: Species = 'bluetit';
   private size = COATS.bluetit.size;
   private forced: Species | null = null;
+  private dressed = false;
   private brain = new Behave();
   private state: State = 'away';
   private wait = 0;
@@ -89,7 +91,7 @@ export class BirdVisit {
   /** happens on the upgrade, not as a bird is arriving; the other coats follow, one at a time */
   private prepare() {
     const b = (this.bird = model ??= buildSongbird());
-    this.toPaint = [...SPECIES];
+    this.toPaint = species();
     b.mesh.frustumCulled = false; // the bounds are the rest pose, not the open wings
     b.group.position.set(0, -5, 0);
     b.group.visible = true;
@@ -99,8 +101,11 @@ export class BirdVisit {
   }
 
   private dress() {
-    const others = SPECIES.filter((s) => s !== this.species);
-    this.species = this.forced ?? others[Math.floor(Math.random() * others.length)];
+    const others = species().filter((s) => s !== this.species);
+    // in the snow the first to come down is the willow tit, so nobody misses it
+    const first = winter() && !this.dressed;
+    this.dressed = true;
+    this.species = this.forced ?? (first ? 'willowtit' : others[Math.floor(Math.random() * others.length)]);
     this.forced = null;
     this.size = COATS[this.species].size;
     this.bird!.wear(this.species);
