@@ -1,10 +1,12 @@
 import * as THREE from 'three';
 import { mulberry32, yardHeight } from '../util';
-import { Animal, type Breed } from './models';
+import { Animal, hasModel, type Breed } from './models';
+import { winter } from '../season';
 
 // A grassland floating above the horizon, with its upside-down reflection
 // below — the way real desert mirages look. It shimmers less every time you
 // fail to reach it (uClarity), which is how the pity system is felt, not read.
+// At Christmas (season.ts) it is silver, pines on the ridge and a herd of stags running.
 
 const vert = /* glsl */ `
 #include <common>
@@ -36,6 +38,7 @@ uniform float uOpacity;
 uniform float uClarity;
 uniform float uTime;
 uniform float uMirror;
+uniform float uSilver;
 varying float vY;
 varying float vX;
 void main() {
@@ -44,6 +47,10 @@ void main() {
   // horizontal heat bands drifting upward
   float bands = 0.88 + 0.12 * sin(vY * 9.0 - uTime * 5.0 + sin(vX * 0.3) * 2.0);
   c *= bands;
+  // silver: a slow sheen sweeping across, as light runs over metal (the base stays mid-grey, or against a pale
+  // winter horizon and the bloom it washed out into a white band)
+  float sheen = pow(max(0.0, sin(vX * 0.12 + vY * 0.5 - uTime * 0.7)), 10.0);
+  c += vec3(0.32, 0.34, 0.38) * sheen * uSilver;
   // the image lifts off the horizon; its reflection fades away from the seam
   float edge = smoothstep(-0.3, 1.2, vY);
   if (uMirror > 0.5) edge *= (1.0 - smoothstep(1.0, 7.0, vY)) * 0.4;
@@ -60,6 +67,7 @@ export class Mirage {
     uOpacity: { value: 0 },
     uClarity: { value: 0 },
     uHaze: { value: new THREE.Color() },
+    uSilver: { value: 0 },
   };
   private herd: { animal: Animal; speed: number }[] = [];
   /** world-space direction (unit, horizontal) from the yard toward the mirage */
@@ -85,28 +93,34 @@ export class Mirage {
         g.add(new THREE.Mesh(geo, this.material(color, m)));
       }
     };
-    layer('#9fb8a8', -6, 7.5, 1.6, 1.7);
-    layer('#7fc46a', -3, 5.0, 1.2, 4.1);
-    layer('#a6dc72', 0, 2.6, 0.7, 0.3);
+    const snowy = winter();
+    this.uniforms.uSilver.value = snowy ? 1 : 0;
+    const look = snowy
+      ? { far: '#8a95a8', mid: '#a1abbb', near: '#b9c2cf', crown: '#6c788c', trunk: '#5f6a7c', herd: '#4a566b' }
+      : { far: '#9fb8a8', mid: '#7fc46a', near: '#a6dc72', crown: '#5f9e52', trunk: '#5c6b48', herd: '#5b7a4a' };
+    layer(look.far, -6, 7.5, 1.6, 1.7);
+    layer(look.mid, -3, 5.0, 1.2, 4.1);
+    layer(look.near, 0, 2.6, 0.7, 0.3);
 
-    // a few trees on the middle ridge
-    const crown = new THREE.IcosahedronGeometry(1.4, 0);
-    for (let i = 0; i < 7; i++) {
+    // a few trees on the middle ridge: round in summer, pines in the snow
+    const crown = snowy ? new THREE.ConeGeometry(1.1, 3.2, 6) : new THREE.IcosahedronGeometry(1.4, 0);
+    for (let i = 0; i < (snowy ? 9 : 7); i++) {
       const x = -26 + rand() * 52;
       const y = 5.0 + Math.sin(x * 0.11 + 4.1) * 1.2 + Math.sin(x * 0.27 + 8.2) * 0.48;
       for (const [g, m] of [[inner, 0], [mirror, 1]] as const) {
-        const t = new THREE.Mesh(crown, this.material('#5f9e52', m));
-        t.position.set(x, y + 1.2, -2.5);
-        t.scale.set(1, 1.3, 1);
-        const trunk = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 1.6), this.material('#5c6b48', m));
+        const t = new THREE.Mesh(crown, this.material(look.crown, m));
+        t.position.set(x, y + (snowy ? 1.9 : 1.2), -2.5);
+        if (!snowy) t.scale.set(1, 1.3, 1);
+        const trunk = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 1.6), this.material(look.trunk, m));
         trunk.position.set(x, y + 0.2, -2.6);
         g.add(trunk, t);
       }
     }
 
-    // free animals running along the near ridge
-    const kinds: Breed[] = ['horse', 'whiteHorse', 'donkey', 'ox', 'horse'];
-    const silhouette = this.material('#5b7a4a', 0, 1);
+    // free animals running along the near ridge; in the snow, a herd of stags
+    const stags = snowy && hasModel('stag');
+    const kinds: Breed[] = stags ? ['stag', 'stag', 'stag', 'stag', 'stag', 'stag'] : ['horse', 'whiteHorse', 'donkey', 'ox', 'horse'];
+    const silhouette = this.material(look.herd, 0, 1);
     kinds.forEach((kind, i) => {
       const a = new Animal(kind);
       a.setMaterial(silhouette);
@@ -114,8 +128,8 @@ export class Mirage {
       a.play('Gallop', 0);
       a.update(rand() * 2);
       a.root.rotation.y = Math.PI / 2; // run along +x
-      a.root.scale.setScalar(1.6);
-      a.root.position.set(-20 + i * 9 + rand() * 4, 2.0, 0.5);
+      a.root.scale.setScalar(stags ? 1.5 : 1.6);
+      a.root.position.set(-20 + i * (stags ? 7.5 : 9) + rand() * 4, 2.0, 0.5);
       inner.add(a.root);
       this.herd.push({ animal: a, speed: 3.5 + rand() * 1.5 });
     });
