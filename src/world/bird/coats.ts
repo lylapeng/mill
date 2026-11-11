@@ -7,8 +7,8 @@ import { winter } from '../../season';
 export type Species = 'bluetit' | 'greattit' | 'sparrow' | 'willowtit';
 const SUMMER: Species[] = ['bluetit', 'greattit', 'sparrow'];
 const WINTER: Species[] = ['willowtit', 'bluetit', 'greattit', 'sparrow'];
-/** the birds that may come this season (season.ts): the willow tit joins them in the snow */
-export const species = (): Species[] => (winter() ? WINTER : SUMMER);
+/** the birds that may come this season (season.ts): the willow tit joins them in the snow. A fresh copy each time: callers pop from it */
+export const species = (): Species[] => (winter() ? WINTER : SUMMER).slice();
 
 export type C = [number, number, number];
 
