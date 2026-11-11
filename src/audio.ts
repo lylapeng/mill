@@ -11,14 +11,52 @@ import { SPECIES, type Species } from './world/bird/coats';
 export type BirdCall = 'song' | 'call';
 
 /** a → b → c, without relying on connect() returning its destination */
-function link(...nodes: AudioNode[]) {
+export function link(...nodes: AudioNode[]) {
   for (let i = 0; i < nodes.length - 1; i++) nodes[i].connect(nodes[i + 1]);
 }
 
 /** Write samples into a buffer; copyToChannel where it exists (a native engine may hand out a copy from getChannelData). */
-function fill(buffer: AudioBuffer, channel: number, data: Float32Array<ArrayBuffer>) {
+export function fill(buffer: AudioBuffer, channel: number, data: Float32Array<ArrayBuffer>) {
   if (typeof buffer.copyToChannel === 'function') buffer.copyToChannel(data, channel);
   else buffer.getChannelData(channel).set(data);
+}
+
+/**
+ * A reverb feeding `out`; returns its input. The mini game's Web Audio may lack convolvers,
+ * so without one it falls back to two damped feedback delays, enough to soften a bell.
+ */
+export function makeReverb(ctx: BaseAudioContext, out: AudioNode, seconds: number): AudioNode {
+  if (typeof ctx.createConvolver === 'function') {
+    const reverb = ctx.createConvolver();
+    const len = Math.floor(ctx.sampleRate * seconds);
+    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const ch = new Float32Array(len);
+      for (let i = 0; i < len; i++) ch[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+      fill(buf, c, ch);
+    }
+    reverb.buffer = buf;
+    reverb.connect(out);
+    return reverb;
+  }
+  const input = ctx.createGain();
+  const wet = ctx.createGain();
+  // longer tails get longer, gentler echoes
+  const stretch = Math.min(2.5, Math.max(1, seconds / 2.8));
+  for (const [time, feedback] of [[0.13, 0.55], [0.21, 0.5]]) {
+    const delay = ctx.createDelay(1);
+    delay.delayTime.value = time * stretch;
+    const tone = ctx.createBiquadFilter();
+    tone.type = 'lowpass';
+    tone.frequency.value = 2200;
+    const fb = ctx.createGain();
+    fb.gain.value = feedback;
+    link(input, delay, tone, fb, delay);
+    tone.connect(wet);
+  }
+  wet.gain.value = 0.6;
+  wet.connect(out);
+  return input;
 }
 
 const AMBIENT_CALL = 0.06;
@@ -32,6 +70,7 @@ export class Sound {
   private grindGain!: GainNode;
   private windGain!: GainNode;
   private reverbSend!: GainNode;
+  private musicGain: GainNode | null = null;
   private noise!: AudioBuffer;
   private muted = false;
   private broken = false;
@@ -97,42 +136,7 @@ export class Sound {
 
   /** A convolution tail; the mini game's Web Audio may lack convolvers, so fall back to echoes. */
   private makeReverb(out: AudioNode): AudioNode {
-    const ctx = this.ctx!;
-    if (typeof ctx.createConvolver === 'function') {
-      const reverb = ctx.createConvolver();
-      reverb.buffer = this.impulse(2.8);
-      reverb.connect(out);
-      return reverb;
-    }
-    // two damped feedback delays at unrelated lengths, enough to soften a bell
-    const input = ctx.createGain();
-    const wet = ctx.createGain();
-    for (const [time, feedback] of [[0.13, 0.55], [0.21, 0.5]]) {
-      const delay = ctx.createDelay(1);
-      delay.delayTime.value = time;
-      const tone = ctx.createBiquadFilter();
-      tone.type = 'lowpass';
-      tone.frequency.value = 2200;
-      const fb = ctx.createGain();
-      fb.gain.value = feedback;
-      link(input, delay, tone, fb, delay);
-      tone.connect(wet);
-    }
-    wet.gain.value = 0.6;
-    wet.connect(out);
-    return input;
-  }
-
-  private impulse(seconds: number) {
-    const ctx = this.ctx!;
-    const len = ctx.sampleRate * seconds;
-    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
-    for (let c = 0; c < 2; c++) {
-      const ch = new Float32Array(len);
-      for (let i = 0; i < len; i++) ch[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
-      fill(buf, c, ch);
-    }
-    return buf;
+    return makeReverb(this.ctx!, out, 2.8);
   }
 
   private loopNoise(freq: number, q: number, level: number) {
@@ -149,6 +153,16 @@ export class Sound {
     link(src, f, g, this.master);
     src.start();
     return g;
+  }
+
+  /** Where background music plugs in: under the master volume and the mute button. Null until started. */
+  musicOut(): { ctx: AudioContext; out: AudioNode } | null {
+    if (!this.ctx || this.broken) return null;
+    if (!this.musicGain) {
+      this.musicGain = this.ctx.createGain();
+      this.musicGain.connect(this.master);
+    }
+    return { ctx: this.ctx, out: this.musicGain };
   }
 
   toggleMute() {
@@ -197,6 +211,17 @@ export class Sound {
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     link(src, f, g, this.master);
     src.start(t, Math.random() * 1.5, dur + 0.05);
+  }
+
+  /** told on every good step: seconds since the last one, and how steady the stride is (0..1). Background music listens. */
+  onCadence: ((interval: number, steady: number) => void) | null = null;
+
+  cadence(interval: number, steady: number) {
+    try {
+      this.onCadence?.(interval, steady);
+    } catch {
+      this.onCadence = null;
+    }
   }
 
   step(heavy: number) {
