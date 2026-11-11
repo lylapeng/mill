@@ -14,6 +14,7 @@ import './world/flat-normals';
 import { Yard } from './world/yard';
 import { hasModel, silhouettes } from './world/models';
 import { fitFov } from './util';
+import { Director } from './music/director';
 import { winter } from './season';
 
 // The game as a whole: title → mill → grassland, shared by the web page and the mini game.
@@ -22,9 +23,16 @@ import { winter } from './season';
 export class App {
   readonly yard: Yard;
   readonly sound = new Sound();
+  /** background music: follows the scene and the player's stride */
+  readonly music = new Director(this);
   game: MillGame | null = null;
   freedom: Freedom | null = null;
   private mode: 'title' | 'mill' | 'freedom' = 'title';
+
+  /** which screen is up (background music picks its piece by it) */
+  get screen() {
+    return this.mode;
+  }
   private meta = loadMeta();
   private portraits;
   /** null where float render targets are missing (some phones): no bloom, plain render */
@@ -186,6 +194,7 @@ export class App {
   /** Advance by `dt` seconds and draw. */
   frame(dt: number) {
     this.time += dt;
+    this.music.update(dt);
     const time = this.time;
     if (this.mode === 'freedom' && this.freedom) {
       this.freedom.update(dt, time);
