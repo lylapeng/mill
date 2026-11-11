@@ -42,6 +42,14 @@ renderer.setAnimationLoop((now) => {
 });
 
 app.showTitle();
+// background music: ?music=off to turn it off, ?music=jinmu for one piece only, &vol=0.5
+{
+  const q = new URLSearchParams(location.search);
+  const m = q.get('music');
+  if (m === 'off') app.music.enabled = false;
+  else if (m) app.music.pick(m);
+  if (q.has('vol')) app.music.volume = Number(q.get('vol'));
+}
 loading.classList.add('done');
 setTimeout(() => loading.remove(), 1200);
 
@@ -65,5 +73,6 @@ if (import.meta.env.DEV) {
     yard: app.yard, get game() { return app.game; }, get freedom() { return app.freedom; },
     startRun: (run: RunState) => app.startRun(run), loadRun, THREE, Animal,
     toFreedom: () => app.game && app.reachFreedom(app.game.run),
+    music: app.music,
   };
 }

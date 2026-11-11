@@ -108,6 +108,7 @@ export class MillGame {
       this.lastStepAt = now;
       this.shake = 0.5;
       this.sound.stumble();
+      this.sound.cadence(0, 0);
       this.ui.stumble();
       return;
     }
@@ -123,6 +124,7 @@ export class MillGame {
     this.speed = Math.min(this.maxSpeed(), this.speed + power);
     this.bob = 1;
     this.sound.step(this.animal.id === 'ox' ? 1 : this.animal.id === 'horse' ? 0.75 : 0.6);
+    this.sound.cadence(interval, this.combo / RHYTHM.maxCombo);
     this.ui.step(side, this.combo / RHYTHM.maxCombo);
   }
 
