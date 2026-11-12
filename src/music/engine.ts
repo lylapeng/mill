@@ -80,6 +80,11 @@ export type Preset = {
     shimmer: number;
     /** 'bow': a soft bowed string instead of a breathing tone; 'pad': a warm analogue-synth pad (Blade Runner-like) */
     tone?: 'breath' | 'bow' | 'pad';
+    /**
+     * The bed answers how steadily the player walks: at `cutoff` (open, bright) while they keep an even
+     * stride, closing to this fraction of it when they stop or stumble. Without it the bed stays put.
+     */
+    bloom?: number;
     root?: { note: number; level: number };
   };
   chords: Chord[];
@@ -133,6 +138,13 @@ export class Music {
   private lastStep = -1;
   /** false in the grassland: nobody is pulling, so the music keeps its own time at full pace */
   private following = true;
+  /** the bed's last brightness target, so it is only re-aimed when it really moves */
+  private bloomAt = 0;
+  /** in the bed's line: dips on each step and swells back before the next (see `pump`) */
+  private pumpGain: GainNode;
+  private pumpLp: BiquadFilterNode;
+  /** the reverb's return, ducked with the bed (or the long tail fills the dips back in) */
+  private wetPump: GainNode;
   /** recent note times, for checking the lock from the console */
   readonly log: number[] = [];
   /** notes played so far, by instrument (for measuring) */
@@ -155,6 +167,14 @@ export class Music {
       return { gain, lp };
     };
     this.buses = { bed: line(), notes: line(), air: line() };
+    this.pumpGain = ctx.createGain();
+    this.pumpLp = ctx.createBiquadFilter();
+    this.pumpLp.type = 'lowpass';
+    this.pumpLp.frequency.value = 20000;
+    this.buses.bed.lp.disconnect();
+    link(this.buses.bed.lp, this.pumpLp, this.pumpGain, this.buses.bed.gain);
+    this.wetPump = ctx.createGain();
+    this.wetPump.connect(this.out);
     this.canPan = typeof ctx.createStereoPanner === 'function';
     this.white = this.noise(() => Math.random() * 2 - 1);
     this.brown = this.noise((last) => ((last + 0.02 * (Math.random() * 2 - 1)) / 1.02) * 3.5);
@@ -175,12 +195,13 @@ export class Music {
     const now = ctx.currentTime;
     this.preset = p;
     if (!this.reverbIn) {
-      this.reverbIn = makeReverb(ctx, this.out, p.reverb.seconds);
+      this.reverbIn = makeReverb(ctx, this.wetPump, p.reverb.seconds);
       this.send.connect(this.reverbIn);
     }
     this.send.gain.value = p.reverb.wet;
     this.buses.bed.gain.gain.value = p.bed.level;
-    this.buses.bed.lp.frequency.value = p.bed.cutoff;
+    this.buses.bed.lp.frequency.value = p.bed.cutoff * (p.bed.bloom ?? 1);
+    this.bloomAt = 0;
     this.buses.notes.gain.gain.value = p.notes.level;
     this.buses.notes.lp.frequency.value = p.notes.cutoff ?? 20000;
     this.buses.air.gain.gain.value = p.air.level;
@@ -270,6 +291,32 @@ export class Music {
     }
     this.lock += (steady - this.lock) * 0.2;
     this.lastStep = now;
+    this.pump(now);
+  }
+
+  /**
+   * Each step the bed dips and darkens for a moment, then swells back before the next step, like a
+   * synth pad side-chained to a kick: the music breathes with the stride, and the hoofbeat gets its
+   * room. Any step is heard at once; a steady stride breathes deeper. (The slow bloom alone took
+   * 20–30 s to open, and the user could not feel their steps in the music, 2026-11-12.)
+   */
+  private pump(now: number) {
+    const p = this.preset;
+    if (!p || p.bed.bloom === undefined) return;
+    const depth = 0.55 + 0.3 * this.lock;
+    const back = Math.min(0.9, this.period * 0.75);
+    for (const g of [this.pumpGain.gain, this.wetPump.gain]) {
+      g.cancelScheduledValues(now);
+      g.setValueAtTime(g.value, now);
+      g.linearRampToValueAtTime(1 - depth, now + 0.03);
+      g.setTargetAtTime(1, now + 0.03, back / 2);
+    }
+    const f = this.pumpLp.frequency;
+    f.cancelScheduledValues(now);
+    f.setValueAtTime(Math.min(20000, Math.max(100, f.value)), now);
+    f.exponentialRampToValueAtTime(p.bed.cutoff * (0.6 - 0.25 * this.lock), now + 0.03);
+    f.exponentialRampToValueAtTime(p.bed.cutoff * 1.5, now + 0.03 + back);
+    f.setValueAtTime(20000, now + 0.04 + back);
   }
 
   /** Take over another piece's grip on the stride, so a crossfade doesn't drop the beat. */
@@ -297,6 +344,32 @@ export class Music {
 
   private locked() {
     return this.lock * this.walking();
+  }
+
+  /** the player is walking and the music goes with their steps */
+  private stepping() {
+    return this.following && this.lastStep >= 0 && this.walking() > 0.5;
+  }
+
+  /** the first predicted step at or after t (and not already past) */
+  private stepAfter(t: number) {
+    const from = Math.max(t, this.ctx.currentTime + 0.02);
+    return this.anchor + Math.ceil((from - this.anchor) / this.period) * this.period;
+  }
+
+  /** open the bed as the stride settles, close it again when the player stops (see `bed.bloom`) */
+  private bloom(p: Preset) {
+    const closed = p.bed.bloom;
+    if (closed === undefined) return;
+    // walking at all opens it part way within seconds; a steady stride opens it the rest of the way
+    const walking = this.lastStep < 0 ? 0 : this.walking();
+    const open = this.following ? 0.4 * walking + 0.6 * this.locked() : 1;
+    const target = p.bed.cutoff * (closed + (1 - closed) * open);
+    if (Math.abs(target - this.bloomAt) < this.bloomAt * 0.03) return;
+    this.bloomAt = target;
+    const now = this.ctx.currentTime;
+    this.buses.bed.lp.frequency.setTargetAtTime(target, now, 2);
+    this.buses.bed.gain.gain.setTargetAtTime(p.bed.level * (0.7 + 0.3 * open), now, 2);
   }
 
   /** move t onto the next predicted step, as often as the player is locked in */
@@ -328,7 +401,12 @@ export class Music {
     const walking = this.walking();
     // standing still thins the notes out; a steady stride fills them in a little
     const pace = (0.35 + 0.65 * walking) * (1 + 0.6 * this.locked());
+    this.bloom(p);
+    const now = this.ctx.currentTime;
+    const stepping = this.stepping();
     while (this.nextChord < until) {
+      // a new chord waits for the next step while the stride is steady
+      if (this.locked() >= 0.5) this.nextChord = this.stepAfter(this.nextChord);
       const hold = rand(p.bed.hold[0], p.bed.hold[1]);
       let i: number;
       if (p.order === 'cycle') i = (this.chordIdx + 1) % p.chords.length;
@@ -344,7 +422,10 @@ export class Music {
       this.nextChord += hold;
     }
     p.notes.voices.forEach((v, i) => {
-      while (this.nextNote[i] < until) {
+      // single notes land on the player's next step, laid out only half a second ahead so they
+      // follow a change of stride (phrases keep the longer look-ahead: they need room to unfold)
+      const horizon = stepping && !v.phrase ? Math.min(until, now + 0.5) : until;
+      while (this.nextNote[i] < horizon) {
         const t = this.nextNote[i];
         const phase = this.phaseAt(t);
         let end = t;
@@ -360,8 +441,6 @@ export class Music {
       // other one if they hurry), on the next predicted step, and only half a second ahead, so a change
       // of stride is heard straight away. It used to keep the piece's own beat unless the stride was
       // steady, and was laid out 2.5 s ahead, so changing pace changed nothing you could hear.
-      const now = this.ctx.currentTime;
-      const stepping = this.following && this.lastStep >= 0 && walking > 0.5;
       const horizon = stepping ? Math.min(until, now + 0.5) : until;
       while (this.nextArp < horizon) {
         let t = this.nextArp;
@@ -394,7 +473,7 @@ export class Music {
 
   /** One turn of a voice: a single note or a phrase, and maybe an answer. Returns when it ends. */
   private turn(p: Preset, v: NoteVoice, i: number, t: number) {
-    const start = this.onBeat(t);
+    const start = !v.phrase && this.stepping() ? this.stepAfter(t) : this.onBeat(t);
     let notes: number[];
     let times: number[];
     let lens: number[];

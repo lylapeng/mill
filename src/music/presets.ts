@@ -1,4 +1,4 @@
-import type { Motif, Preset } from './engine';
+import type { NoteVoice, Preset } from './engine';
 
 // Notes are MIDI numbers: 50 = D3, 62 = D4, 74 = D5, 86 = D6.
 
@@ -90,97 +90,53 @@ export const auroraB: Preset = {
 };
 
 // ── summer: one per scene tier, from the prompts in 提示词.md ─────────────
-// The music comes in slowly: 黄土 is a few phrases under the hooves and the stone, 流霞 is full.
+// The music comes in slowly: 黄土 is a dark hum under the hooves and the stone, 流霞 is open and wide.
 // All in D or G so a tier change crossfades without a jolt; each step a little brighter:
 // D dorian → D mixolydian → G major → D major → D lydian, and G pentatonic for the grassland.
-// Second version: the first was too empty and had no tune (user, 2026-11-11). Now the lead plays
-// question-and-answer phrases that come back, and a soft broken chord keeps the music moving,
-// one note per stride while the player walks steadily.
+//
+// Third version (2026-11-12): the bed is the music. A warm analogue pad, like the Blade Runner
+// score, holds each chord for ten seconds or more; above it only a lone note now and then, or a
+// soft pluck on each step. The written tunes of the second version were dropped: the user found
+// them mediocre and liked the bed far better ("黄土还行因为比较简单").
+//
+// How it goes with the player: the bed has no beat to keep, so it answers the stride instead. Walk
+// evenly and it opens, brighter and a little louder (`bed.bloom`); stop or stumble and it closes
+// again. A new chord waits for the next step, and the lone notes and the plucks land on steps.
+// Tiers differ by the colour of the chords, how bright the pad gets, the reverb and the loudness.
 
-// pairs: the question rises and stays open, the answer comes home (steps are places in the pool)
-const homeward: Motif = {
-  steps: [0, 1, 2, 3, 2, 1], beats: [1, 1, 1, 2, 1, 3],
-  then: { steps: [0, 1, 2, 1, 0, -1, 0], beats: [1, 1, 1, 1, 1, 1, 4] },
-};
-const highFirst: Motif = {
-  steps: [2, 3, 4, 3, 2], beats: [1, 1, 2, 1, 3],
-  then: { steps: [1, 0, -1, -2, -1], beats: [1, 1, 1, 1, 4] },
-};
-const opening: Motif = {
-  steps: [0, 2, 3, 4, 5, 4], beats: [1, 1, 1, 1, 2, 3],
-  then: { steps: [3, 2, 1, 0], beats: [1, 1, 2, 4] },
-};
-const swaying: Motif = { steps: [0, -1, 0, 1, 2, 1, 0], beats: [2, 1, 1, 1, 1, 1, 4] };
-const sighing: Motif = {
-  steps: [0, -1], beats: [2, 3],
-  then: { steps: [1, 0, -1, -2], beats: [1, 1, 1, 4] },
-};
-const longing: Motif = {
-  steps: [0, 1, 2, 4, 3], beats: [1, 1, 1, 2, 3],
-  then: { steps: [2, 3, 2, 1, 0], beats: [1, 1, 1, 1, 4] },
-};
+/** a lone note every five to ten seconds, on a chord tone, landing on the player's next step */
+const lone = (voice: NoteVoice['voice'], pool: number[], vel: number): NoteVoice => ({
+  voice,
+  pool,
+  gap: [5, 10],
+  hush: 0.2,
+  vel,
+  chordBias: 0.9,
+  fall: 0.5,
+  hold: [2, 4],
+});
 
-// more rhythms (2026-11-11, the user asked for richer tunes): quick pairs, dotted notes, a turn, a leap
-const skipping: Motif = { steps: [0, 2, 1, 3, 2], beats: [0.5, 0.5, 1, 0.5, 2.5] };
-const dotted: Motif = {
-  steps: [0, 1, 2, 4], beats: [1.5, 0.5, 1, 2],
-  then: { steps: [3, 2, 1, 0], beats: [0.5, 0.5, 1, 3] },
-};
-const turning: Motif = { steps: [0, 1, 0, -1, 0, 2], beats: [0.5, 0.5, 0.5, 0.5, 1, 3] };
-const leap: Motif = { steps: [0, 4, 3, 2, 1, 0], beats: [1, 2, 0.5, 0.5, 1, 3] };
-const climbing: Motif = { steps: [0, 1, 2, 1, 2, 3, 4], beats: [0.5, 0.5, 1, 0.5, 0.5, 1, 3] };
-// short ones for 初晴: a few notes, said and let go
-const peek: Motif = { steps: [0, 2, 1], beats: [1, 0.5, 2] };
-const lift: Motif = { steps: [0, 1, 2, 4], beats: [0.5, 0.5, 1, 2] };
-const nod: Motif = { steps: [2, 1, 0], beats: [0.5, 0.5, 2] };
-const glance: Motif = { steps: [0, -1, 1, 0], beats: [1, 0.5, 0.5, 2] };
-
-/** 黄土: dusty plain under a heavy sky. Breathy wooden flute, distant low cello, hollow wood. Still the sparest. */
+/** 黄土: dusty plain under a heavy sky. The darkest pad, open fifths, a hollow wooden note now and then. */
 export const huangtu: Preset = {
   id: 'huangtu',
   title: '黄土',
-  gain: 0.45,
-  reverb: { seconds: 4, wet: 0.6 },
-  beat: 1.2,
-  bed: { level: 0.098, cutoff: 900, hold: [14, 20], fade: 7, breath: 0, shimmer: 5, tone: 'bow' },
+  gain: 1.21,
+  reverb: { seconds: 6, wet: 0.8 },
+  bed: { level: 0.3, cutoff: 1200, hold: [14, 20], fade: 7, breath: 0, shimmer: 6, tone: 'pad', bloom: 0.3 },
   // open fifths, no thirds: modal and weathered
   chords: [{ notes: [50, 57, 62] }, { notes: [48, 55, 60] }, { notes: [50, 57, 64] }, { notes: [45, 52, 57] }],
   order: 'cycle',
-  phases: [
-    { seconds: [30, 45], density: 1, low: 0, arp: false },
-    { seconds: [40, 60], density: 1.2, low: 0 },
-  ],
-  // a slow wooden knock, every other stride: patient, like the work itself
-  arp: { voice: 'wood', pattern: [0, -1, 2, -1, 1, -1, -1, -1], vel: 0.035, octave: 0, beats: 1 },
-  notes: {
-    level: 0.9,
-    cutoff: 3000,
-    voices: [
-      {
-        voice: 'marimba',
-        pool: [62, 64, 65, 67, 69, 71, 72, 74, 76, 77], // D dorian
-        gap: [3, 6],
-        hush: 0.1,
-        vel: 0.4,
-        chordBias: 0.5,
-        fall: 0.6,
-        hold: [1, 2],
-        phrase: { prob: 0.65, motifs: [swaying, sighing, homeward, nod, glance], vary: 0.4 },
-        answer: { voice: 'cello', pool: [50, 52, 53, 55, 57, 60, 62], prob: 0.3, delay: [0.5, 1.5], vel: 0.07, echo: true },
-      },
-    ],
-  },
+  notes: { level: 0.9, cutoff: 3000, voices: [lone('marimba', [62, 64, 65, 67, 69, 71, 72, 74], 0.3)] }, // D dorian
   air: { level: 1, wind: 0, grains: 0, grainPool: [] },
 };
 
-/** 初晴: clouds part, the first green. Flute phrases with cello replies; plucked strings begin to move. Major thirds appear. */
+/** 初晴: clouds part, the first green. The pad warms, major thirds appear, a kalimba note catches the light. */
 export const chuqing: Preset = {
   id: 'chuqing',
   title: '初晴',
-  gain: 0.52,
-  reverb: { seconds: 4.5, wet: 0.7 },
-  beat: 1.1,
-  bed: { level: 0.07, cutoff: 1100, hold: [10, 16], fade: 6, breath: 0, shimmer: 6, tone: 'bow' },
+  gain: 1.05,
+  reverb: { seconds: 6, wet: 0.85 },
+  bed: { level: 0.3, cutoff: 1500, hold: [12, 16], fade: 6, breath: 0, shimmer: 7, tone: 'pad', bloom: 0.3 },
   chords: [
     { notes: [50, 57, 64] }, // D sus2: still open
     { notes: [48, 55, 62, 64] }, // C add9
@@ -188,40 +144,18 @@ export const chuqing: Preset = {
     { notes: [55, 62, 66, 71] }, // G maj7
   ],
   order: 'cycle',
-  phases: [
-    { seconds: [30, 40], density: 1, low: 0, arp: false },
-    { seconds: [45, 60], density: 1.2, low: 0 },
-  ],
-  arp: { voice: 'pluck', pattern: [0, -1, 2, -1, 1, -1, 2, -1], vel: 0.14, octave: 0, beats: 1 },
-  notes: {
-    level: 0.9,
-    cutoff: 3500,
-    voices: [
-      {
-        voice: 'kalimba',
-        pool: [62, 64, 66, 67, 69, 71, 72, 74, 76, 78, 79], // D mixolydian
-        gap: [2, 4],
-        hush: 0.06,
-        vel: 0.45,
-        chordBias: 0.55,
-        fall: 0.55,
-        hold: [1, 2],
-        phrase: { prob: 0.7, motifs: [peek, lift, nod, glance], vary: 0.45 },
-        answer: { voice: 'cello', pool: [55, 57, 59, 62, 64, 66, 69], prob: 0.45, delay: [0.5, 1.5], vel: 0.13, echo: true },
-      },
-    ],
-  },
+  notes: { level: 0.9, cutoff: 3500, voices: [lone('kalimba', [62, 64, 66, 67, 69, 71, 72, 74, 76], 0.3)] }, // D mixolydian
   air: { level: 1, wind: 0, grains: 0, grainPool: [] },
 };
 
-/** 青野: green meadow in summer sun. Rising flute phrases, the strings echo them; the plucks sway like grass. */
+/** 青野: green meadow in summer sun. A brighter pad, and a soft pluck on each step that sways like grass. */
 export const qingye: Preset = {
   id: 'qingye',
   title: '青野',
-  gain: 0.75,
-  reverb: { seconds: 4.5, wet: 0.65 },
+  gain: 1.25,
+  reverb: { seconds: 6.5, wet: 0.9 },
   beat: 1,
-  bed: { level: 0.091, cutoff: 1300, hold: [8, 12], fade: 4, breath: 0, shimmer: 6, tone: 'bow' },
+  bed: { level: 0.3, cutoff: 1650, hold: [10, 14], fade: 6, breath: 0, shimmer: 8, tone: 'pad', bloom: 0.3 },
   chords: [
     { notes: [55, 59, 62, 69] }, // G add9
     { notes: [52, 59, 62, 67] }, // Em7
@@ -229,44 +163,19 @@ export const qingye: Preset = {
     { notes: [50, 57, 62, 67] }, // D sus4
   ],
   order: 'cycle',
-  phases: [
-    { seconds: [25, 35], density: 1, low: 0 },
-    { seconds: [45, 60], density: 1.3, low: 0 },
-  ],
-  arp: { voice: 'pluck', pattern: [0, 2, 1, 2, 3, 2, 1, 2], vel: 0.14, octave: 0, beats: 1 },
-  notes: {
-    level: 0.9,
-    cutoff: 4000,
-    voices: [
-      {
-        voice: 'marimba',
-        pool: [67, 69, 71, 72, 74, 76, 79, 81, 83, 84], // G major
-        gap: [1.5, 3.5],
-        hush: 0.05,
-        vel: 0.5,
-        chordBias: 0.5,
-        fall: 0.45,
-        hold: [0.9, 1.8],
-        phrase: { prob: 0.8, motifs: [opening, homeward, longing, skipping, climbing, turning], vary: 0.45 },
-        answer: { voice: 'cello', pool: [55, 57, 59, 62, 64, 67, 69], prob: 0.55, delay: [0.3, 1], vel: 0.13, echo: true },
-      },
-    ],
-  },
+  arp: { voice: 'pluck', pattern: [0, 2, 1, 2, 3, 2, 1, 2], vel: 0.1, octave: 0, beats: 1 },
+  notes: { level: 0.9, cutoff: 4000, voices: [] },
   air: { level: 1, wind: 0, grains: 0, grainPool: [] },
 };
 
-/**
- * 金暮: golden evening, the tier that sings. Two tunes that keep coming back on the flute, the cello
- * answering, over a warm broken chord. Drier and closer than 流霞 (the user found the two alike,
- * 2026-11-11): this one is a song in the evening light, 流霞 is the sky.
- */
+/** 金暮: golden evening, the fullest: the warm pad, a pluck on each step and a kalimba note now and then. */
 export const jinmu: Preset = {
   id: 'jinmu',
   title: '金暮',
-  gain: 0.72,
-  reverb: { seconds: 3.8, wet: 0.5 },
+  gain: 1.2,
+  reverb: { seconds: 7, wet: 1 },
   beat: 1,
-  bed: { level: 0.077, cutoff: 1200, hold: [8, 12], fade: 5, breath: 0, shimmer: 5, tone: 'bow' },
+  bed: { level: 0.3, cutoff: 1800, hold: [10, 14], fade: 6, breath: 0, shimmer: 9, tone: 'pad', bloom: 0.3 },
   chords: [
     { notes: [50, 57, 64, 66] }, // D add9
     { notes: [54, 59, 62, 69] }, // Bm7
@@ -274,46 +183,21 @@ export const jinmu: Preset = {
     { notes: [57, 62, 64, 69] }, // A sus4
   ],
   order: 'cycle',
-  phases: [
-    { seconds: [30, 40], density: 1, low: 0 },
-    { seconds: [45, 60], density: 1.25, low: 0 },
-  ],
-  arp: { voice: 'pluck', pattern: [0, 1, 2, 3, 2, 1], vel: 0.16, octave: 0, beats: 1 },
-  notes: {
-    level: 0.9,
-    cutoff: 4000,
-    voices: [
-      {
-        voice: 'kalimba',
-        pool: [62, 64, 66, 69, 71, 74, 76, 78, 81, 83], // D major pentatonic
-        gap: [1.5, 3.5],
-        hush: 0.05,
-        vel: 0.45,
-        chordBias: 0.5,
-        fall: 0.5,
-        hold: [0.9, 1.8],
-        // the two meant to be remembered; they come back often and only a little changed
-        phrase: { prob: 0.85, motifs: [homeward, highFirst, homeward, highFirst, dotted, leap, swaying], vary: 0.3 },
-        answer: { voice: 'cello', pool: [57, 59, 61, 62, 64, 66, 69], prob: 0.6, delay: [0.5, 1.2], vel: 0.14, echo: true },
-      },
-    ],
-  },
+  arp: { voice: 'pluck', pattern: [0, 1, 2, 3, 2, 1], vel: 0.1, octave: 0, beats: 1 },
+  notes: { level: 0.9, cutoff: 4000, voices: [lone('kalimba', [62, 64, 66, 69, 71, 74, 76, 78, 81], 0.3)] }, // D major pentatonic
   air: { level: 1, wind: 0, grains: 0, grainPool: [] },
 };
 
 /**
- * 流霞: the sky opening. Here the flute steps back: soft plucked-string harmonics carry the phrases,
- * ringing on and overlapping in a long reverb like the clouds unfolding ("tender overlapping melodic
- * fragments", "harmonic blooming"), over bowed strings, lydian and suspended. The low flute only
- * answers now and then. Kept below the bright register, which is left to the birds on the beam.
+ * 流霞: the sky opening. The brightest, widest pad in the longest reverb, lydian and suspended, a
+ * kantele note ringing on now and then. Kept below the bright register, which is left to the birds.
  */
 export const liuxia: Preset = {
   id: 'liuxia',
   title: '流霞',
-  gain: 0.7,
-  reverb: { seconds: 6.5, wet: 0.95 },
-  beat: 1.3,
-  bed: { level: 0.119, cutoff: 1500, hold: [10, 14], fade: 6, breath: 0, shimmer: 10, tone: 'bow' },
+  gain: 1.05,
+  reverb: { seconds: 8, wet: 1 },
+  bed: { level: 0.3, cutoff: 2400, hold: [12, 16], fade: 7, breath: 0, shimmer: 11, tone: 'pad', bloom: 0.3 },
   chords: [
     { notes: [50, 57, 61, 68] }, // D maj7♯11 without the third
     { notes: [50, 56, 59, 64] }, // E over D: the lydian lift
@@ -321,40 +205,18 @@ export const liuxia: Preset = {
     { notes: [57, 59, 64, 69] }, // A sus2
   ],
   order: 'cycle',
-  phases: [
-    { seconds: [30, 45], density: 1, low: 0 },
-    { seconds: [45, 60], density: 1.25, low: 0 },
-  ],
-  // a faint pluck every other stride, under the harmonics
-  arp: { voice: 'pluck', pattern: [0, -1, 2, -1, 3, -1, 2, -1], vel: 0.09, octave: 0, beats: 1 },
-  notes: {
-    level: 0.9,
-    cutoff: 2600,
-    voices: [
-      {
-        voice: 'kantele',
-        pool: [69, 71, 73, 74, 76, 78, 81, 83, 85, 86], // D major without G♯: it clashed with A and Bm while it rang on
-        gap: [1.5, 3.5],
-        hush: 0.08,
-        vel: 0.42,
-        chordBias: 0.5,
-        fall: 0.5,
-        phrase: { prob: 0.75, motifs: [longing, opening, swaying, turning, leap], vary: 0.45 },
-        answer: { voice: 'cello', pool: [57, 59, 61, 62, 64, 66, 68, 69], prob: 0.45, delay: [0.5, 1.5], vel: 0.08, echo: true },
-      },
-    ],
-  },
+  // D major without G♯: it clashed with A and Bm while it rang on
+  notes: { level: 0.9, cutoff: 2600, voices: [lone('kantele', [69, 71, 73, 74, 76, 78, 81, 83], 0.32)] },
   air: { level: 1, wind: 0, grains: 0, grainPool: [] },
 };
 
-/** 草原 (the ending): the first free breath. Long pentatonic phrases that rise and open; the strings echo from far off. */
+/** 草原 (the ending): the first free breath. An open pentatonic pad that no longer follows the steps. */
 export const caoyuan: Preset = {
   id: 'caoyuan',
   title: '草原',
-  gain: 0.85,
-  reverb: { seconds: 5.5, wet: 0.8 },
-  beat: 0.9,
-  bed: { level: 0.098, cutoff: 1400, hold: [8, 12], fade: 5, breath: 0, shimmer: 7, tone: 'bow' },
+  gain: 1.46,
+  reverb: { seconds: 7, wet: 0.9 },
+  bed: { level: 0.3, cutoff: 2000, hold: [10, 14], fade: 6, breath: 0, shimmer: 9, tone: 'pad', bloom: 0.3 },
   chords: [
     { notes: [55, 62, 69, 71] }, // G add9
     { notes: [52, 59, 62, 69] }, // Em add11
@@ -362,29 +224,7 @@ export const caoyuan: Preset = {
     { notes: [50, 57, 64, 69] }, // D sus2
   ],
   order: 'cycle',
-  phases: [
-    { seconds: [20, 30], density: 1, low: 0, arp: false },
-    { seconds: [50, 70], density: 1.3, low: 0 },
-  ],
-  arp: { voice: 'pluck', pattern: [0, 1, 2, 3, 4, 3, 2, 1], vel: 0.14, octave: 0, beats: 1 },
-  notes: {
-    level: 0.9,
-    cutoff: 4500,
-    voices: [
-      {
-        voice: 'kalimba',
-        pool: [67, 69, 71, 74, 76, 79, 81, 83, 86, 88], // G pentatonic
-        gap: [1.5, 3],
-        hush: 0.05,
-        vel: 0.45,
-        chordBias: 0.4,
-        fall: 0.4,
-        hold: [1, 2],
-        phrase: { prob: 0.85, motifs: [opening, longing, homeward, climbing, dotted], vary: 0.45 },
-        answer: { voice: 'cello', pool: [55, 57, 59, 62, 64, 67, 69], prob: 0.5, delay: [0.8, 2], vel: 0.13, echo: true },
-      },
-    ],
-  },
+  notes: { level: 0.9, cutoff: 4500, voices: [lone('kalimba', [67, 69, 71, 74, 76, 79, 81, 83, 86], 0.3)] }, // G pentatonic
   air: { level: 1, wind: 0, grains: 0, grainPool: [] },
 };
 
