@@ -170,6 +170,8 @@ function start(gl: WebGL2RenderingContext) {
     () => {
       app = new App(renderer, ui, input);
       app.roster = roster;
+      // the title screen plays the user's Suno track (Breathwood, the stretch 1:36.5–2:59, looped); the game stays synthesised
+      app.music.title = { file: 'music/title.mp3', loopStart: 1, loopEnd: 83.5167, gain: 0.6 };
       app.sound.onFail = report;
       app.resize(w, h, Math.min(info.pixelRatio, platform.quality.maxPixelRatio));
       app.showTitle();
