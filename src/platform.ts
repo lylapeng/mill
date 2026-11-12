@@ -34,7 +34,7 @@ const web: Platform = {
     if (!res.ok) throw new Error(`${path}: ${res.status}`);
     return res.arrayBuffer();
   },
-  quality: { maxPixelRatio: 2, shadowMapSize: 2048, meadowGrass: 90000 },
+  quality: { maxPixelRatio: 2, shadowMapSize: 2048, shadowRadius: 2, meadowGrass: 90000 },
 };
 
 export let platform = web;
