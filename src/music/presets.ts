@@ -120,6 +120,21 @@ const longing: Motif = {
   then: { steps: [2, 3, 2, 1, 0], beats: [1, 1, 1, 1, 4] },
 };
 
+// more rhythms (2026-11-11, the user asked for richer tunes): quick pairs, dotted notes, a turn, a leap
+const skipping: Motif = { steps: [0, 2, 1, 3, 2], beats: [0.5, 0.5, 1, 0.5, 2.5] };
+const dotted: Motif = {
+  steps: [0, 1, 2, 4], beats: [1.5, 0.5, 1, 2],
+  then: { steps: [3, 2, 1, 0], beats: [0.5, 0.5, 1, 3] },
+};
+const turning: Motif = { steps: [0, 1, 0, -1, 0, 2], beats: [0.5, 0.5, 0.5, 0.5, 1, 3] };
+const leap: Motif = { steps: [0, 4, 3, 2, 1, 0], beats: [1, 2, 0.5, 0.5, 1, 3] };
+const climbing: Motif = { steps: [0, 1, 2, 1, 2, 3, 4], beats: [0.5, 0.5, 1, 0.5, 0.5, 1, 3] };
+// short ones for 初晴: a few notes, said and let go
+const peek: Motif = { steps: [0, 2, 1], beats: [1, 0.5, 2] };
+const lift: Motif = { steps: [0, 1, 2, 4], beats: [0.5, 0.5, 1, 2] };
+const nod: Motif = { steps: [2, 1, 0], beats: [0.5, 0.5, 2] };
+const glance: Motif = { steps: [0, -1, 1, 0], beats: [1, 0.5, 0.5, 2] };
+
 /** 黄土: dusty plain under a heavy sky. Breathy wooden flute, distant low cello, hollow wood. Still the sparest. */
 export const huangtu: Preset = {
   id: 'huangtu',
@@ -127,7 +142,7 @@ export const huangtu: Preset = {
   gain: 0.45,
   reverb: { seconds: 4, wet: 0.6 },
   beat: 1.2,
-  bed: { level: 0.14, cutoff: 900, hold: [14, 20], fade: 7, breath: 0.4, shimmer: 5, tone: 'bow' },
+  bed: { level: 0.098, cutoff: 900, hold: [14, 20], fade: 7, breath: 0, shimmer: 5, tone: 'bow' },
   // open fifths, no thirds: modal and weathered
   chords: [{ notes: [50, 57, 62] }, { notes: [48, 55, 60] }, { notes: [50, 57, 64] }, { notes: [45, 52, 57] }],
   order: 'cycle',
@@ -142,15 +157,15 @@ export const huangtu: Preset = {
     cutoff: 3000,
     voices: [
       {
-        voice: 'flute',
+        voice: 'marimba',
         pool: [62, 64, 65, 67, 69, 71, 72, 74, 76, 77], // D dorian
         gap: [3, 6],
         hush: 0.1,
-        vel: 0.24,
+        vel: 0.4,
         chordBias: 0.5,
         fall: 0.6,
-        hold: [1.5, 3],
-        phrase: { prob: 0.65, motifs: [swaying, sighing, homeward], vary: 0.35 },
+        hold: [1, 2],
+        phrase: { prob: 0.65, motifs: [swaying, sighing, homeward, nod, glance], vary: 0.4 },
         answer: { voice: 'cello', pool: [50, 52, 53, 55, 57, 60, 62], prob: 0.3, delay: [0.5, 1.5], vel: 0.07, echo: true },
       },
     ],
@@ -165,7 +180,7 @@ export const chuqing: Preset = {
   gain: 0.52,
   reverb: { seconds: 4.5, wet: 0.7 },
   beat: 1.1,
-  bed: { level: 0.1, cutoff: 1100, hold: [10, 16], fade: 6, breath: 0.35, shimmer: 6, tone: 'bow' },
+  bed: { level: 0.07, cutoff: 1100, hold: [10, 16], fade: 6, breath: 0, shimmer: 6, tone: 'bow' },
   chords: [
     { notes: [50, 57, 64] }, // D sus2: still open
     { notes: [48, 55, 62, 64] }, // C add9
@@ -183,15 +198,15 @@ export const chuqing: Preset = {
     cutoff: 3500,
     voices: [
       {
-        voice: 'flute',
+        voice: 'kalimba',
         pool: [62, 64, 66, 67, 69, 71, 72, 74, 76, 78, 79], // D mixolydian
         gap: [2, 4],
         hush: 0.06,
-        vel: 0.3,
+        vel: 0.45,
         chordBias: 0.55,
         fall: 0.55,
-        hold: [1.5, 3],
-        phrase: { prob: 0.7, motifs: [homeward, highFirst, swaying], vary: 0.35 },
+        hold: [1, 2],
+        phrase: { prob: 0.7, motifs: [peek, lift, nod, glance], vary: 0.45 },
         answer: { voice: 'cello', pool: [55, 57, 59, 62, 64, 66, 69], prob: 0.45, delay: [0.5, 1.5], vel: 0.13, echo: true },
       },
     ],
@@ -206,7 +221,7 @@ export const qingye: Preset = {
   gain: 0.75,
   reverb: { seconds: 4.5, wet: 0.65 },
   beat: 1,
-  bed: { level: 0.13, cutoff: 1300, hold: [8, 12], fade: 4, breath: 0.3, shimmer: 6, tone: 'bow' },
+  bed: { level: 0.091, cutoff: 1300, hold: [8, 12], fade: 4, breath: 0, shimmer: 6, tone: 'bow' },
   chords: [
     { notes: [55, 59, 62, 69] }, // G add9
     { notes: [52, 59, 62, 67] }, // Em7
@@ -224,15 +239,15 @@ export const qingye: Preset = {
     cutoff: 4000,
     voices: [
       {
-        voice: 'flute',
+        voice: 'marimba',
         pool: [67, 69, 71, 72, 74, 76, 79, 81, 83, 84], // G major
         gap: [1.5, 3.5],
         hush: 0.05,
-        vel: 0.27,
+        vel: 0.5,
         chordBias: 0.5,
         fall: 0.45,
-        hold: [1.2, 2.5],
-        phrase: { prob: 0.8, motifs: [opening, homeward, longing], vary: 0.35 },
+        hold: [0.9, 1.8],
+        phrase: { prob: 0.8, motifs: [opening, homeward, longing, skipping, climbing, turning], vary: 0.45 },
         answer: { voice: 'cello', pool: [55, 57, 59, 62, 64, 67, 69], prob: 0.55, delay: [0.3, 1], vel: 0.13, echo: true },
       },
     ],
@@ -240,14 +255,18 @@ export const qingye: Preset = {
   air: { level: 1, wind: 0, grains: 0, grainPool: [] },
 };
 
-/** 金暮: golden evening. Two tunes that keep coming back, the cello answering the flute over a warm broken chord. */
+/**
+ * 金暮: golden evening, the tier that sings. Two tunes that keep coming back on the flute, the cello
+ * answering, over a warm broken chord. Drier and closer than 流霞 (the user found the two alike,
+ * 2026-11-11): this one is a song in the evening light, 流霞 is the sky.
+ */
 export const jinmu: Preset = {
   id: 'jinmu',
   title: '金暮',
-  gain: 0.8,
-  reverb: { seconds: 5, wet: 0.7 },
-  beat: 1.1,
-  bed: { level: 0.14, cutoff: 1300, hold: [8, 12], fade: 5, breath: 0.3, shimmer: 7, tone: 'bow' },
+  gain: 0.72,
+  reverb: { seconds: 3.8, wet: 0.5 },
+  beat: 1,
+  bed: { level: 0.077, cutoff: 1200, hold: [8, 12], fade: 5, breath: 0, shimmer: 5, tone: 'bow' },
   chords: [
     { notes: [50, 57, 64, 66] }, // D add9
     { notes: [54, 59, 62, 69] }, // Bm7
@@ -259,22 +278,22 @@ export const jinmu: Preset = {
     { seconds: [30, 40], density: 1, low: 0 },
     { seconds: [45, 60], density: 1.25, low: 0 },
   ],
-  arp: { voice: 'pluck', pattern: [0, 1, 2, 3, 2, 1], vel: 0.14, octave: 0, beats: 1 },
+  arp: { voice: 'pluck', pattern: [0, 1, 2, 3, 2, 1], vel: 0.16, octave: 0, beats: 1 },
   notes: {
     level: 0.9,
     cutoff: 4000,
     voices: [
       {
-        voice: 'flute',
+        voice: 'kalimba',
         pool: [62, 64, 66, 69, 71, 74, 76, 78, 81, 83], // D major pentatonic
         gap: [1.5, 3.5],
         hush: 0.05,
-        vel: 0.27,
+        vel: 0.45,
         chordBias: 0.5,
         fall: 0.5,
-        hold: [1.5, 3],
+        hold: [0.9, 1.8],
         // the two meant to be remembered; they come back often and only a little changed
-        phrase: { prob: 0.85, motifs: [homeward, highFirst, homeward, highFirst, swaying], vary: 0.25 },
+        phrase: { prob: 0.85, motifs: [homeward, highFirst, homeward, highFirst, dotted, leap, swaying], vary: 0.3 },
         answer: { voice: 'cello', pool: [57, 59, 61, 62, 64, 66, 69], prob: 0.6, delay: [0.5, 1.2], vel: 0.14, echo: true },
       },
     ],
@@ -282,14 +301,19 @@ export const jinmu: Preset = {
   air: { level: 1, wind: 0, grains: 0, grainPool: [] },
 };
 
-/** 流霞: the sky opening. Sustained string harmonics, low flute phrases overlapping them, lydian and suspended; a faint shimmer of plucks. */
+/**
+ * 流霞: the sky opening. Here the flute steps back: soft plucked-string harmonics carry the phrases,
+ * ringing on and overlapping in a long reverb like the clouds unfolding ("tender overlapping melodic
+ * fragments", "harmonic blooming"), over bowed strings, lydian and suspended. The low flute only
+ * answers now and then. Kept below the bright register, which is left to the birds on the beam.
+ */
 export const liuxia: Preset = {
   id: 'liuxia',
   title: '流霞',
   gain: 0.7,
-  reverb: { seconds: 6, wet: 0.9 },
-  beat: 1.2,
-  bed: { level: 0.1, cutoff: 1400, hold: [10, 14], fade: 6, breath: 0.45, shimmer: 10 },
+  reverb: { seconds: 6.5, wet: 0.95 },
+  beat: 1.3,
+  bed: { level: 0.119, cutoff: 1500, hold: [10, 14], fade: 6, breath: 0, shimmer: 10, tone: 'bow' },
   chords: [
     { notes: [50, 57, 61, 68] }, // D maj7♯11 without the third
     { notes: [50, 56, 59, 64] }, // E over D: the lydian lift
@@ -301,32 +325,22 @@ export const liuxia: Preset = {
     { seconds: [30, 45], density: 1, low: 0 },
     { seconds: [45, 60], density: 1.25, low: 0 },
   ],
-  arp: { voice: 'pluck', pattern: [0, 2, 3, 2, 1, 2], vel: 0.12, octave: 0, beats: 1 },
+  // a faint pluck every other stride, under the harmonics
+  arp: { voice: 'pluck', pattern: [0, -1, 2, -1, 3, -1, 2, -1], vel: 0.09, octave: 0, beats: 1 },
   notes: {
     level: 0.9,
-    cutoff: 2400,
+    cutoff: 2600,
     voices: [
       {
-        voice: 'flute',
-        pool: [64, 66, 68, 69, 71, 73, 74, 76, 78, 80], // D lydian, low-ish
-        gap: [2, 4],
-        hush: 0.06,
-        vel: 0.3,
+        voice: 'kantele',
+        pool: [69, 71, 73, 74, 76, 78, 81, 83, 85, 86], // D major without G♯: it clashed with A and Bm while it rang on
+        gap: [1.5, 3.5],
+        hush: 0.08,
+        vel: 0.42,
         chordBias: 0.5,
         fall: 0.5,
-        hold: [1.5, 3.5],
-        phrase: { prob: 0.75, motifs: [longing, opening, swaying], vary: 0.4 },
-        answer: { voice: 'cello', pool: [57, 59, 61, 62, 64, 66, 68, 69], prob: 0.5, delay: [0.5, 1.5], vel: 0.08, echo: true },
-      },
-      {
-        voice: 'cello',
-        pool: [57, 59, 61, 62, 64, 66, 68, 69, 71],
-        gap: [5, 9],
-        hush: 0.2,
-        vel: 0.06,
-        chordBias: 0.8,
-        fall: 0.5,
-        hold: [3, 6],
+        phrase: { prob: 0.75, motifs: [longing, opening, swaying, turning, leap], vary: 0.45 },
+        answer: { voice: 'cello', pool: [57, 59, 61, 62, 64, 66, 68, 69], prob: 0.45, delay: [0.5, 1.5], vel: 0.08, echo: true },
       },
     ],
   },
@@ -340,7 +354,7 @@ export const caoyuan: Preset = {
   gain: 0.85,
   reverb: { seconds: 5.5, wet: 0.8 },
   beat: 0.9,
-  bed: { level: 0.14, cutoff: 1400, hold: [8, 12], fade: 5, breath: 0.3, shimmer: 7, tone: 'bow' },
+  bed: { level: 0.098, cutoff: 1400, hold: [8, 12], fade: 5, breath: 0, shimmer: 7, tone: 'bow' },
   chords: [
     { notes: [55, 62, 69, 71] }, // G add9
     { notes: [52, 59, 62, 69] }, // Em add11
@@ -358,15 +372,15 @@ export const caoyuan: Preset = {
     cutoff: 4500,
     voices: [
       {
-        voice: 'flute',
+        voice: 'kalimba',
         pool: [67, 69, 71, 74, 76, 79, 81, 83, 86, 88], // G pentatonic
         gap: [1.5, 3],
         hush: 0.05,
-        vel: 0.27,
+        vel: 0.45,
         chordBias: 0.4,
         fall: 0.4,
-        hold: [1.5, 3],
-        phrase: { prob: 0.85, motifs: [opening, longing, homeward], vary: 0.35 },
+        hold: [1, 2],
+        phrase: { prob: 0.85, motifs: [opening, longing, homeward, climbing, dotted], vary: 0.45 },
         answer: { voice: 'cello', pool: [55, 57, 59, 62, 64, 67, 69], prob: 0.5, delay: [0.8, 2], vel: 0.13, echo: true },
       },
     ],

@@ -15,7 +15,7 @@
 
 import { fill, link, makeReverb } from '../audio';
 
-export type Voice = 'kantele' | 'celesta' | 'glass' | 'flute' | 'cello' | 'pluck' | 'wood';
+export type Voice = 'kantele' | 'celesta' | 'glass' | 'flute' | 'cello' | 'pluck' | 'wood' | 'harp' | 'kalimba' | 'marimba';
 export type Bus = 'bed' | 'notes' | 'air';
 
 /** `low`: a low drone note under the chord, heard only in phases that ask for it */
@@ -78,8 +78,8 @@ export type Preset = {
     breath: number;
     /** detune in cents between the two oscillators of a tone: the shimmer */
     shimmer: number;
-    /** 'bow': a soft bowed string instead of a breathing tone */
-    tone?: 'breath' | 'bow';
+    /** 'bow': a soft bowed string instead of a breathing tone; 'pad': a warm analogue-synth pad (Blade Runner-like) */
+    tone?: 'breath' | 'bow' | 'pad';
     root?: { note: number; level: number };
   };
   chords: Chord[];
@@ -114,8 +114,10 @@ export class Music {
   private chordIdx = -1;
   private nextNote: number[] = [];
   private lastNote: number[] = [];
+  private lastMotif: (Motif | null)[] = [];
   private nextGrain = 0;
   private nextArp = 0;
+  private lastArp = -1;
   private arpStep = 0;
   private timeline: { end: number; phase: Phase }[] = [];
   private phaseIdx = -1;
@@ -255,13 +257,16 @@ export class Music {
     this.following = true;
     const now = this.ctx.currentTime;
     if (interval > 0.25 && interval < 1.5) {
-      // a quarter of the way per step, so the tempo eases over rather than jumps
-      this.period += (interval - this.period) * 0.25;
-      if (this.lastStep < 0) this.anchor = now;
+      // The grid is counted from the latest step, half way between where it predicted this step and
+      // where it actually landed. (It used to be counted from the first step of the run, so a tiny
+      // change of tempo, multiplied over a hundred beats, threw the next predicted step off by 100 ms+.)
+      if (this.lastStep < 0 || now - this.lastStep > 1.5) this.anchor = now;
       else {
         const grid = this.anchor + Math.round((now - this.anchor) / this.period) * this.period;
-        this.anchor += (now - grid) * 0.5;
+        this.anchor = grid + (now - grid) * 0.5;
       }
+      // a quarter of the way per step, so the tempo eases over rather than jumps
+      this.period += (interval - this.period) * 0.25;
     }
     this.lock += (steady - this.lock) * 0.2;
     this.lastStep = now;
@@ -351,17 +356,31 @@ export class Music {
     });
     const arp = p.arp;
     if (arp) {
-      while (this.nextArp < until) {
-        const t = this.nextArp;
-        const step = this.beatSeconds(p) * arp.beats;
+      // While the player walks, the broken chord goes with their actual steps: one note per step (every
+      // other one if they hurry), on the next predicted step, and only half a second ahead, so a change
+      // of stride is heard straight away. It used to keep the piece's own beat unless the stride was
+      // steady, and was laid out 2.5 s ahead, so changing pace changed nothing you could hear.
+      const now = this.ctx.currentTime;
+      const stepping = this.following && this.lastStep >= 0 && walking > 0.5;
+      const horizon = stepping ? Math.min(until, now + 0.5) : until;
+      while (this.nextArp < horizon) {
+        let t = this.nextArp;
+        let step: number;
+        if (stepping) {
+          step = (this.period < 0.45 ? 2 : 1) * this.period * arp.beats;
+          // the nearest predicted step, but never the one the last note already took
+          t = this.anchor + Math.round((Math.max(t, now + 0.02) - this.anchor) / this.period) * this.period;
+          while (t < now + 0.02 || t < this.lastArp + step * 0.6) t += this.period;
+        } else step = this.beatSeconds(p) * arp.beats;
         const k = arp.pattern[this.arpStep % arp.pattern.length];
         const downbeat = this.arpStep % arp.pattern.length === 0;
         this.arpStep++;
         if ((this.phaseAt(t)?.arp ?? true) && walking > 0.5 && k >= 0 && this.chord.notes.length) {
           const tones = this.chord.notes.slice().sort((a, b) => a - b);
           const note = tones[k % tones.length] + arp.octave + 12 * Math.floor(k / tones.length);
-          this.strike(arp.voice, this.grid(t), note, arp.vel * rand(0.8, 1) * (downbeat ? 1.2 : 1), step * 0.9);
+          this.strike(arp.voice, stepping ? t : this.grid(t), note, arp.vel * rand(0.8, 1) * (downbeat ? 1.2 : 1), step * 0.9);
         }
+        this.lastArp = t;
         this.nextArp = t + step;
       }
     }
@@ -379,8 +398,13 @@ export class Music {
     let notes: number[];
     let times: number[];
     let lens: number[];
+    // notes after which a wind player takes a breath (the long ones inside a phrase)
+    let breathAfter: number[] = [];
     if (v.phrase && Math.random() < v.phrase.prob) {
-      const chosen = pick(v.phrase.motifs);
+      // never the same motif twice running
+      const fresh = v.phrase.motifs.filter((x) => x !== this.lastMotif[i]);
+      const chosen = pick(fresh.length ? fresh : v.phrase.motifs);
+      this.lastMotif[i] = chosen;
       // a question and its answer are one long phrase, the question's last note a breath between them
       const whole: Motif = chosen.then
         ? { steps: chosen.steps.concat(chosen.then.steps), beats: chosen.beats.concat(chosen.then.beats) }
@@ -398,11 +422,14 @@ export class Music {
       times = [];
       lens = [];
       let clock = start;
-      for (const b of m.beats) {
+      // each note let go a little before the next (a player breathes between notes), and a long
+      // one is not held at full length: the first summer flute held its last note 3–5 s, flat
+      m.beats.forEach((b, k) => {
+        if (b >= 3 && k < m.beats.length - 1) breathAfter.push(k);
         times.push(clock);
-        lens.push(Math.max(0.4, b * beat * 1.05));
+        lens.push(Math.max(0.35, Math.min(b * beat * 0.85, k === m.beats.length - 1 ? 2.2 : 1.6)));
         clock += b * beat;
-      }
+      });
     } else {
       notes = [this.choose(v, i)];
       times = [start];
@@ -411,11 +438,31 @@ export class Music {
     }
     // shape: louder toward the high notes, the last one let go softly
     const hi = Math.max(...notes), lo = Math.min(...notes);
-    notes.forEach((n, k) => {
+    const vels = notes.map((n, k) => {
       const shape = notes.length < 2 ? 1 : (0.8 + (0.3 * (n - lo)) / Math.max(1, hi - lo)) * (k === notes.length - 1 ? 0.85 : 1);
-      this.strike(v.voice, times[k], n, v.vel * rand(0.85, 1) * shape, lens[k]);
-      this.log.push(times[k]);
+      return v.vel * rand(0.85, 1) * shape;
     });
+    if (v.voice === 'flute') {
+      // one breath per stretch of the phrase, a new breath after each long note
+      let s = 0;
+      for (let k = 0; k < notes.length; k++) {
+        if (k < notes.length - 1 && breathAfter.indexOf(k) < 0) continue;
+        this.played.flute = (this.played.flute ?? 0) + k - s + 1;
+        this.flute(times.slice(s, k + 1), notes.slice(s, k + 1).map(mtof), vels.slice(s, k + 1), lens[k]);
+        s = k + 1;
+      }
+    } else {
+      const graces = v.voice === 'kalimba' || v.voice === 'marimba' || v.voice === 'kantele';
+      notes.forEach((n, k) => {
+        // now and then a quick note from just above, as a player's ornament (not on the first or a quick note)
+        if (graces && k > 0 && lens[k] > 0.6 && Math.random() < 0.15) {
+          const above = v.pool.filter((x) => x > n);
+          if (above.length) this.strike(v.voice, times[k] - 0.08, above[0], vels[k] * 0.45, 0.2);
+        }
+        this.strike(v.voice, times[k], n, vels[k], lens[k]);
+      });
+    }
+    for (const t of times) this.log.push(t);
     if (this.log.length > 200) this.log.splice(0, this.log.length - 200);
     this.lastNote[i] = notes[notes.length - 1];
     // the next turn is counted from soon after the last note starts, not from when it has died away
@@ -445,9 +492,9 @@ export class Music {
   /** A motif coming back a little changed, so it is recognised without being a loop. */
   private vary(m: Motif, chance: number): Motif {
     if (Math.random() >= chance || m.steps.length < 2) return m;
-    const steps = m.steps.slice();
-    const beats = m.beats.slice();
-    switch (Math.floor(Math.random() * 4)) {
+    let steps = m.steps.slice();
+    let beats = m.beats.slice();
+    switch (Math.floor(Math.random() * 7)) {
       case 0: // leave off the last note, the one before it rings instead
         steps.pop();
         beats.pop();
@@ -459,8 +506,32 @@ export class Music {
       case 2: // slower
         for (let k = 0; k < beats.length; k++) beats[k] *= 1.5;
         break;
-      default: // the end turns the other way
+      case 3: // the end turns the other way
         steps[steps.length - 1] = steps[steps.length - 2] - (steps[steps.length - 1] - steps[steps.length - 2]);
+        break;
+      case 4: // the same shape, a step or two higher or lower (a sequence)
+        {
+          const by = pick([-2, -1, 1, 2]);
+          steps = steps.map((x) => x + by);
+        }
+        break;
+      case 5: {
+        // a long inner note split in two, the second a neighbour (a passing note)
+        const long = beats.slice(0, -1).map((b, k) => (b >= 2 ? k : -1)).filter((k) => k >= 0);
+        if (!long.length) break;
+        const k = pick(long);
+        const half = beats[k] / 2;
+        steps.splice(k + 1, 0, steps[k] + (steps[k + 1] >= steps[k] ? 1 : -1));
+        beats.splice(k, 1, half, half);
+        break;
+      }
+      default: {
+        // two quick notes where one was: dotted, a little lift in the rhythm
+        const k = Math.floor(Math.random() * (beats.length - 1));
+        if (beats[k] < 1) break;
+        steps.splice(k + 1, 0, steps[k] + 1);
+        beats.splice(k, 1, beats[k] * 0.75, beats[k] * 0.25);
+      }
     }
     return { steps, beats };
   }
@@ -541,8 +612,24 @@ export class Music {
         this.partials(t, f, vel, pan, [[1, 1, 0.7], [3.93, 0.18, 0.12]], 0.003);
         this.click(t, f * 2, vel * 0.25, pan, 8);
         break;
+      case 'harp': {
+        // a nylon string plucked with a finger: warm, the upper partials dying first, longer low down
+        const ring = Math.min(4, 2.2 * Math.sqrt(440 / f));
+        this.partials(t, f, vel, pan, [[1, 1, ring], [2, 0.42, ring * 0.6], [3, 0.18, ring * 0.35], [4, 0.08, ring * 0.22], [5, 0.035, ring * 0.15]], 0.005);
+        this.click(t, f * 3, vel * 0.06, pan, 3);
+        break;
+      }
+      case 'kalimba':
+        // a metal tine in a wooden box: round fundamental, its high overtone gone almost at once
+        this.partials(t, f, vel, pan, [[1, 1, 1.8], [2, 0.08, 0.6], [5.9, 0.12, 0.12]], 0.003);
+        this.click(t, f * 2, vel * 0.08, pan, 4);
+        break;
+      case 'marimba':
+        // a wooden bar under a soft mallet: the tuned overtones (4 and 10) fade fast
+        this.partials(t, f, vel, pan, [[1, 1, Math.min(1.6, 0.9 * Math.sqrt(440 / f))], [4, 0.18, 0.18], [10, 0.03, 0.05]], 0.006);
+        break;
       case 'flute':
-        this.flute(t, f, vel, dur, pan);
+        this.flute([t], [f], [vel], dur);
         break;
       case 'cello':
         this.bowed(t, f, vel, dur, pan);
@@ -627,29 +714,42 @@ export class Music {
   }
 
   /**
-   * A wooden flute. What made the first one sound electronic: a triangle wave, breath noise
-   * sitting down around the note (a low hiss on low notes), and nothing moving inside a note.
-   * Now: a strong fundamental with a few soft harmonics that brighten as the note swells,
-   * air above the tone with a little chiff on the attack, breath that wavers, and a vibrato
-   * that is mostly in the breath (loudness) with only a touch in the pitch.
+   * A wooden flute, played the way a person plays it: a phrase is one breath. The air never stops
+   * between its notes; the fingers only change the pitch, which slides across in a few hundredths
+   * of a second, and the loudness follows the breath through the whole phrase. Only its first note
+   * speaks (with a small chiff); the next breath starts a new line. The first versions started
+   * every note afresh, swell and chiff and all, and sounded one note at a time (user, 2026-11-11).
+   * Tone: a strong fundamental with a few soft harmonics, no air noise, breath that wavers,
+   * a vibrato mostly in the loudness that relaxes as each note changes and grows on long ones.
+   * `times`, `fs`, `vels`: the notes of the breath; `last`: how long its last note sounds.
    */
-  private flute(t: number, f: number, vel: number, dur: number, pan: number) {
+  private flute(times: number[], fs: number[], vels: number[], last: number, pan = rand(-0.6, 0.6)) {
     const ctx = this.ctx;
-    const swellAt = t + Math.min(dur * 0.5, 0.6);
+    const n = times.length;
+    const t0 = times[0];
+    const off = times[n - 1] + Math.max(0.2, last);
+    const end = off + 0.8;
+    const next = (k: number) => (k + 1 < n ? times[k + 1] : off);
+    // loudness: speaks, fills out, moves smoothly to each note's level (no dip between notes),
+    // eases off a little on a long note, and lets go at the end of the breath
     const e = ctx.createGain();
-    e.gain.setValueAtTime(0, t);
-    e.gain.linearRampToValueAtTime(vel * 0.8, t + 0.07);
-    e.gain.linearRampToValueAtTime(vel, swellAt);
-    e.gain.setValueAtTime(vel, Math.max(swellAt, t + dur));
-    e.gain.setTargetAtTime(0, Math.max(swellAt, t + dur), 0.09);
+    e.gain.setValueAtTime(0, t0);
+    e.gain.linearRampToValueAtTime(vels[0] * 0.8, t0 + 0.07);
+    e.gain.linearRampToValueAtTime(vels[0], t0 + Math.min(0.3, (next(0) - t0) * 0.8));
+    for (let k = 0; k < n; k++) {
+      const len = next(k) - times[k];
+      if (k > 0) e.gain.setTargetAtTime(vels[k], times[k], 0.06);
+      if (len > 0.6) e.gain.setTargetAtTime(vels[k] * (k === n - 1 ? 0.6 : 0.82), times[k] + 0.35, len * 0.6);
+    }
+    e.gain.setTargetAtTime(0, off, 0.12);
     this.panned(e, 'notes', pan);
     // breath: a slow waver, and the vibrato, both in loudness
     const breath = ctx.createGain();
     breath.gain.value = 1;
     link(breath, e);
     const waver = ctx.createOscillator();
-    // from the note itself rather than Math.random, so a change of timbre doesn't change the tune
-    const jitter = Math.abs(Math.sin(t * 12.9898 + f * 0.0781) * 43758.5453) % 1;
+    // from the notes themselves rather than Math.random, so a change of timbre doesn't change the tune
+    const jitter = Math.abs(Math.sin(t0 * 12.9898 + fs[0] * 0.0781) * 43758.5453) % 1;
     waver.frequency.value = 0.3 + 0.4 * jitter;
     const waverDepth = ctx.createGain();
     waverDepth.gain.value = 0.06;
@@ -658,38 +758,51 @@ export class Music {
     const vib = ctx.createOscillator();
     vib.frequency.value = rand(4.6, 5.4);
     const vibDepth = ctx.createGain();
-    vibDepth.gain.setValueAtTime(0, t);
-    vibDepth.gain.linearRampToValueAtTime(0, t + Math.min(0.35, dur * 0.4));
-    vibDepth.gain.linearRampToValueAtTime(0.07, t + Math.min(0.9, dur * 0.8));
+    const vibPitch = ctx.createGain();
+    // the vibrato relaxes as a note changes and grows again if the note is held
+    for (const [param, full] of [[vibDepth.gain, 0.07], [vibPitch.gain, 3]] as const) {
+      param.setValueAtTime(0, t0);
+      for (let k = 0; k < n; k++) {
+        const len = next(k) - times[k];
+        if (k > 0) param.setTargetAtTime(full * 0.2, times[k], 0.03);
+        param.setTargetAtTime(len > 0.7 ? full : full * 0.4, times[k] + Math.min(0.35, len * 0.4), 0.2);
+      }
+    }
     link(vib, vibDepth);
     this.mod(vibDepth, breath.gain);
-    const end = t + dur + 0.8;
+    vib.connect(vibPitch);
     for (const o of [waver, vib]) {
-      o.start(t);
+      o.start(t0);
       o.stop(end);
     }
-    // the tone: soft harmonics, a little brighter once the note has filled out
+    // the tone: soft harmonics, a little brighter once the breath has filled out
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.value = Math.min(f * 6, 5000);
     lp.Q.value = 0.3;
+    for (let k = 0; k < n; k++) lp.frequency.setValueAtTime(Math.min(fs[k] * 6, 5000), times[k]);
     lp.connect(breath);
     const bright = ctx.createGain();
-    bright.gain.setValueAtTime(0.6, t);
-    bright.gain.linearRampToValueAtTime(1, swellAt);
+    bright.gain.setValueAtTime(0.6, t0);
+    bright.gain.linearRampToValueAtTime(1, t0 + 0.3);
     bright.connect(lp);
+    const top = Math.max(...fs);
     const detunes: AudioParam[] = [];
     for (const [ratio, amp] of [[1, 1], [2, 0.32], [3, 0.11], [4, 0.04], [5, 0.015]]) {
-      if (f * ratio > 12000) continue;
+      if (top * ratio > 12000) continue;
       const o = ctx.createOscillator();
-      // speaks a little flat and settles onto the note
-      o.frequency.setValueAtTime(f * ratio * cents(-18), t);
-      o.frequency.linearRampToValueAtTime(f * ratio, t + 0.08);
+      // speaks a little flat and settles onto the note; then each new note is reached by a quick slide
+      o.frequency.setValueAtTime(fs[0] * ratio * cents(-18), t0);
+      o.frequency.linearRampToValueAtTime(fs[0] * ratio, t0 + 0.08);
+      for (let k = 1; k < n; k++) {
+        const slide = Math.min(0.05, (times[k] - times[k - 1]) * 0.25);
+        o.frequency.setValueAtTime(fs[k - 1] * ratio, times[k] - slide);
+        o.frequency.exponentialRampToValueAtTime(fs[k] * ratio, times[k]);
+      }
       const g = ctx.createGain();
       g.gain.value = amp;
       link(o, g);
       g.connect(ratio === 1 ? lp : bright);
-      o.start(t);
+      o.start(t0);
       o.stop(end);
       detunes.push(o.detune);
     }
@@ -699,34 +812,13 @@ export class Music {
     const driftDepth = ctx.createGain();
     driftDepth.gain.value = 3;
     link(drift, driftDepth);
-    const vibPitch = ctx.createGain();
-    vibPitch.gain.setValueAtTime(0, t);
-    vibPitch.gain.linearRampToValueAtTime(0, t + Math.min(0.35, dur * 0.4));
-    vibPitch.gain.linearRampToValueAtTime(3, t + Math.min(0.9, dur * 0.8));
-    vib.connect(vibPitch);
     for (const d of detunes) {
       this.mod(driftDepth, d);
       this.mod(vibPitch, d);
     }
-    drift.start(t);
+    drift.start(t0);
     drift.stop(end);
-    // air: above the tone, a chiff as the note speaks, then a thin steady hiss that breathes with it
-    const src = ctx.createBufferSource();
-    src.buffer = this.white;
-    src.loop = true;
-    const hp = ctx.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = Math.max(1800, f * 3);
-    const top = ctx.createBiquadFilter();
-    top.type = 'lowpass';
-    top.frequency.value = 7000;
-    const air = ctx.createGain();
-    air.gain.setValueAtTime(0, t);
-    air.gain.linearRampToValueAtTime(0.18, t + 0.015);
-    air.gain.exponentialRampToValueAtTime(0.045, t + 0.14);
-    link(src, hp, top, air, breath);
-    src.start(t, Math.random() * 2);
-    src.stop(end);
+    // no breath noise: however it was filtered, the user heard it as a hiss (2026-11-11)
   }
 
   /** a bowed string played softly: slow bow, filtered so it stays airy, late vibrato */
@@ -780,6 +872,43 @@ export class Music {
     this.mod(depth, swell.gain);
     link(swell, env);
     this.panned(env, 'bed', rand(-0.4, 0.4));
+    if (p.bed.tone === 'pad') {
+      // An analogue pad in the manner of the Blade Runner soundtrack: three sawtooths a few cents
+      // apart (thick and slowly beating), through a soft low-pass that opens as the chord swells in,
+      // breathes slowly while it holds, and closes as it fades. The user liked the bed far more than
+      // any tune laid over it (2026-11-11).
+      const open = Math.max(f * 1.5, p.bed.cutoff);
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.Q.value = 0.9;
+      lp.frequency.setValueAtTime(Math.max(f * 1.05, open * 0.3), t);
+      lp.frequency.linearRampToValueAtTime(open, t + Math.min(dur * 0.45, fade * 1.6));
+      lp.frequency.linearRampToValueAtTime(open * 0.75, t + dur - fade * 0.5);
+      lp.frequency.linearRampToValueAtTime(Math.max(f * 1.05, open * 0.3), t + dur);
+      const sweep = ctx.createOscillator();
+      sweep.frequency.value = rand(0.03, 0.07);
+      const sweepDepth = ctx.createGain();
+      sweepDepth.gain.value = open * 0.25;
+      link(sweep, sweepDepth);
+      this.mod(sweepDepth, lp.frequency);
+      lp.connect(swell);
+      const spread = Math.max(6, p.bed.shimmer);
+      for (const [off, amp] of [[-spread, 0.33], [0, 0.34], [spread, 0.33]]) {
+        const o = ctx.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.value = f * cents(off);
+        const g = ctx.createGain();
+        g.gain.value = amp * 0.32;
+        link(o, g, lp);
+        o.start(t);
+        o.stop(t + dur + 0.1);
+      }
+      sweep.start(t);
+      sweep.stop(t + dur + 0.1);
+      lfo.start(t);
+      lfo.stop(t + dur + 0.1);
+      return;
+    }
     const bow = p.bed.tone === 'bow';
     let into: AudioNode = swell;
     if (bow) {
