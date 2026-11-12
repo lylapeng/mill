@@ -111,6 +111,7 @@ export class App {
   }
 
   showTitle() {
+    this.sound.quietYard();
     this.mode = 'title';
     this.renderPass.scene = this.yard.scene;
     this.renderPass.camera = this.yard.camera;

@@ -69,6 +69,8 @@ export class Sound {
   private master!: GainNode;
   private grindGain!: GainNode;
   private windGain!: GainNode;
+  /** the title screen: no wind or stone under the music (the game brings them back as it starts) */
+  private yardQuiet = false;
   private reverbSend!: GainNode;
   private musicGain: GainNode | null = null;
   private noise!: AudioBuffer;
@@ -131,7 +133,7 @@ export class Sound {
     // stone grinding: filtered noise whose level follows walking speed
     this.grindGain = this.loopNoise(160, 1.2, 0);
     // wind: always there, quietly
-    this.windGain = this.loopNoise(500, 0.4, 0.05);
+    this.windGain = this.loopNoise(500, 0.4, this.yardQuiet ? 0 : 0.05);
   }
 
   /** A convolution tail; the mini game's Web Audio may lack convolvers, so fall back to echoes. */
@@ -163,6 +165,17 @@ export class Sound {
       this.musicGain.connect(this.master);
     }
     return { ctx: this.ctx, out: this.musicGain };
+  }
+
+  /** Hush the yard's wind and stone (the title screen). Pulling turns them back on through ambience(). */
+  quietYard() {
+    this.yardQuiet = true;
+    this.safely(() => {
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+      this.windGain.gain.setTargetAtTime(0, now, 0.5);
+      this.grindGain.gain.setTargetAtTime(0, now, 0.5);
+    });
   }
 
   toggleMute() {
@@ -298,6 +311,7 @@ export class Sound {
     this.safely(() => {
       if (!this.ctx) return;
       const now = this.ctx.currentTime;
+      this.yardQuiet = false;
       this.grindGain.gain.setTargetAtTime(speed01 * 0.22, now, 0.2);
       this.windGain.gain.setTargetAtTime(0.04 + beauty * 0.01, now, 1);
       if (birdsong) {
