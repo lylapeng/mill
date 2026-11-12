@@ -50,6 +50,11 @@ export default defineConfig({
             `(window.__millFiles = window.__millFiles || {})[${JSON.stringify(`sounds/${f}`)}] = "${readFileSync(`public/sounds/${f}`).toString('base64')}";\n`,
           ).join(''),
         );
+        // the title screen's recorded track (the user's Suno piece, shared with the WeChat package)
+        writeFileSync(
+          `${out}/music.js`,
+          `(window.__millFiles = window.__millFiles || {})["music/title.mp3"] = "${readFileSync('minigame/music/title.mp3').toString('base64')}";\n`,
+        );
         cpSync('xhs/fonts/noto-serif-sc.woff2', `${out}/fonts/noto-serif-sc.woff2`);
         cpSync('public/fonts/mashanzheng-lamo.woff2', `${out}/fonts/mashanzheng-lamo.woff2`);
         const licence = (name: string, file: string) =>

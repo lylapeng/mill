@@ -190,6 +190,8 @@ async function boot() {
   }
   app = new App(renderer, ui, input);
   app.roster = () => follow.roster();
+  // the title screen plays the user's Suno track (Breathwood, 1:36.5–2:59 looped), as on WeChat; the game stays synthesised
+  app.music.title = { file: 'music/title.mp3', loopStart: 1, loopEnd: 83.5167, gain: 0.6 };
   // twenty seconds in, on the title: the stag steps in without waiting for the next visit
   follow.onOffer = () => app?.refreshTitle();
   app.resize(w, h, pr);
